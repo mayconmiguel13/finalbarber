@@ -1,0 +1,265 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  OWNER
+  BARBER
+  RECEPTIONIST
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum AppointmentStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum BookingOrigin {
+  WHATSAPP_AI
+  PWA_WEB
+  COUNTER_WALKIN
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  CASH
+}
+
+enum TransactionStatus {
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+model Organization {
+  id                  String       @id @default(uuid())
+  name                String       @db.VarChar(120)
+  slug                String       @unique @db.VarChar(60) // Para URLs amigáveis: app.barber.com/atelier88
+  document            String?      @db.VarChar(20) // CNPJ ou CPF do estabelecimento
+  phone               String       @db.VarChar(25) // WhatsApp do salão
+  address             String?      @db.VarChar(255)
+  city                String?      @db.VarChar(100)
+  state               String?      @db.VarChar(2)
+
+  // Configurações Visuais e White-label
+  themeColor          String       @default("gold") @db.VarChar(20) // gold, blue, emerald, copper
+  themeMode           String       @default("dark") @db.VarChar(10) // dark, light
+  logoUrl             String?      @db.VarChar(500)
+
+  // Configuração do Incentivo de Pagamento Online (Anti No-Show)
+  onlineDiscountActive Boolean     @default(true)
+  onlineDiscountType   DiscountType @default(PERCENTAGE)
+  onlineDiscountValue  Decimal     @default(10.00) @db.Decimal(5, 2) // Ex: 10% ou R$ 5,00
+
+  // Configurações de Subadquirente / Asaas
+  asaasWalletId       String?      @db.VarChar(100) // Subconta Asaas da Barbearia
+
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  users               User[]
+  barberProfiles      BarberProfile[]
+  services            Service[]
+  customers           Customer[]
+  appointments        Appointment[]
+  transactions        Transaction[]
+  products            Product[]
+  whatsappSessions    WhatsAppSession[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String        @id @default(uuid())
+  orgId          String
+  name           String        @db.VarChar(100)
+  email          String        @unique @db.VarChar(120)
+  passwordHash   String        @db.VarChar(255)
+  phone          String?       @db.VarChar(25)
+  avatarUrl      String?       @db.VarChar(500)
+  role           Role          @default(BARBER)
+  active         Boolean       @default(true)
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  barberProfile  BarberProfile?
+
+  @@index([orgId])
+  @@map("users")
+}
+
+model BarberProfile {
+  id              String        @id @default(uuid())
+  userId          String        @unique
+  orgId           String
+  nickname        String?       @db.VarChar(60) // Ex: Diego "Fade"
+  document        String?       @db.VarChar(20) // CPF / CNPJ MEI para Lei do Salão-Parceiro
+  pixKey          String?       @db.VarChar(100)
+  asaasAccountId  String?       @db.VarChar(100) // Subconta Asaas do Barbeiro para Split automático
+  commissionRate  Decimal       @default(50.00) @db.Decimal(5, 2) // Cota-parte do barbeiro em % (Ex: 50.00%)
+  bio             String?       @db.Text
+  active          Boolean       @default(true)
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  appointments    Appointment[]
+
+  @@index([orgId])
+  @@map("barber_profiles")
+}
+
+model Service {
+  id              String        @id @default(uuid())
+  orgId           String
+  name            String        @db.VarChar(100)
+  description     String?       @db.Text
+  durationMinutes Int           @default(40)
+  price           Decimal       @db.Decimal(10, 2)
+  active          Boolean       @default(true)
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organization    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  appointments    Appointment[]
+
+  @@index([orgId])
+  @@map("services")
+}
+
+model Customer {
+  id              String        @id @default(uuid())
+  orgId           String
+  name            String        @db.VarChar(100)
+  phone           String        @db.VarChar(25) // Identificador chave no WhatsApp (DDI + DDD + Num)
+  email           String?       @db.VarChar(120)
+  notes           String?       @db.Text
+  isVipMember     Boolean       @default(false) // Clube de Assinatura
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organization    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  appointments    Appointment[]
+
+  @@unique([orgId, phone])
+  @@index([orgId])
+  @@map("customers")
+}
+
+model Appointment {
+  id              String            @id @default(uuid())
+  orgId           String
+  barberId        String
+  customerId      String
+  serviceId       String
+
+  startsAt        DateTime
+  endsAt          DateTime
+  status          AppointmentStatus @default(CONFIRMED)
+  origin          BookingOrigin     @default(WHATSAPP_AI)
+
+  // Valores Financeiros
+  originalPrice   Decimal           @db.Decimal(10, 2)
+  discountAmount  Decimal           @default(0.00) @db.Decimal(10, 2)
+  finalPrice      Decimal           @db.Decimal(10, 2)
+
+  notes           String?           @db.Text
+
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  organization    Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  barber          BarberProfile     @relation(fields: [barberId], references: [id])
+  customer        Customer          @relation(fields: [customerId], references: [id])
+  service         Service           @relation(fields: [serviceId], references: [id])
+  transaction     Transaction?
+
+  @@index([orgId, startsAt])
+  @@index([barberId, startsAt])
+  @@map("appointments")
+}
+
+model Transaction {
+  id              String            @id @default(uuid())
+  orgId           String
+  appointmentId   String            @unique
+  externalId      String?           @db.VarChar(100) // ID da cobrança no Asaas
+  paymentMethod   PaymentMethod     @default(PIX)
+  status          TransactionStatus @default(PENDING)
+
+  // Divisão Inteligente (Split Salão-Parceiro)
+  grossAmount     Decimal           @db.Decimal(10, 2) // Valor total pago pelo cliente
+  salonShare      Decimal           @db.Decimal(10, 2) // Cota-parte da Barbearia
+  barberShare     Decimal           @db.Decimal(10, 2) // Cota-parte do Barbeiro MEI
+  platformFee     Decimal           @default(1.49) @db.Decimal(10, 2) // Taxa de intermediação do seu SaaS retida
+  gatewayFee      Decimal           @default(0.99) @db.Decimal(10, 2) // Custo de processamento do Asaas
+
+  pixQrCodeUrl    String?           @db.Text
+  pixCopiaCola    String?           @db.Text
+
+  paidAt          DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  organization    Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  appointment     Appointment       @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("transactions")
+}
+
+model Product {
+  id              String        @id @default(uuid())
+  orgId           String
+  name            String        @db.VarChar(100)
+  stockQuantity   Int           @default(0)
+  minStockAlert   Int           @default(5)
+  costPrice       Decimal       @db.Decimal(10, 2)
+  salePrice       Decimal       @db.Decimal(10, 2)
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organization    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("products")
+}
+
+model WhatsAppSession {
+  id              String        @id @default(uuid())
+  orgId           String
+  customerPhone   String        @db.VarChar(25)
+  conversationContext Json?     // Histórico recente e variáveis de estado da conversa da IA
+  lastInteraction DateTime      @default(now())
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  organization    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, customerPhone])
+  @@map("whatsapp_sessions")
+}

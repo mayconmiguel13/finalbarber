@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Default to Gold / Amber */
+  --primary: #D97706;
+  --primary-hover: #B45309;
+  --primary-light: rgba(217, 119, 6, 0.12);
+  --primary-border: rgba(217, 119, 6, 0.3);
+  --primary-glow: rgba(217, 119, 6, 0.25);
+  --gradient-from: #D97706;
+  --gradient-to: #92400E;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.font-mono-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-feature-settings: "tnum" 1;
+}
+
+.bg-brand { background-color: var(--primary) !important; }
+.bg-brand-light { background-color: var(--primary-light) !important; }
+.text-brand { color: var(--primary) !important; }
+.border-brand { border-color: var(--primary) !important; }
+.border-brand-subtle { border-color: var(--primary-border) !important; }
+.shadow-brand { box-shadow: 0 8px 25px -4px var(--primary-glow) !important; }
+
+.brand-gradient {
+  background: linear-gradient(135deg, var(--gradient-from), var(--gradient-to)) !important;
+}
+
+.soft-card-shadow {
+  box-shadow: 0 4px 20px -2px rgba(16, 24, 40, 0.04), 0 2px 6px -1px rgba(16, 24, 40, 0.02);
+}
+
+.dark .soft-card-shadow {
+  box-shadow: 0 4px 25px -2px rgba(0, 0, 0, 0.4);
+}

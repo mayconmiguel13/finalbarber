@@ -1,0 +1,14 @@
+{
+  "name": "barber-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SaaS + Fintech platform for modern barbershops with WhatsApp AI & Split payments",
+  "scripts": {
+    "install:admin": "npm --prefix apps/web-admin install",
+    "install:api": "npm --prefix apps/api install",
+    "dev:admin": "npm --prefix apps/web-admin run dev",
+    "dev:api": "npm --prefix apps/api run dev",
+    "build:admin": "npm --prefix apps/web-admin run build",
+    "build:api": "npm --prefix apps/api run build"
+  }
+}
