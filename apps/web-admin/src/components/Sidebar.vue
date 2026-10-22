@@ -99,13 +99,17 @@ const route = useRoute();
       <div>
         <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2">Sistema</div>
         <nav class="space-y-1">
-          <a href="#" class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium text-xs transition">
+          <router-link 
+            to="/whatsapp" 
+            class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition"
+            :class="route.path === '/whatsapp' ? 'bg-brand-light text-brand' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium'"
+          >
             <div class="flex items-center gap-3">
               <MessageSquareCode class="w-4 h-4 text-emerald-500" />
               <span>WhatsApp IA</span>
             </div>
             <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          </a>
+          </router-link>
 
           <router-link 
             to="/settings" 

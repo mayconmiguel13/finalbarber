@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { appointmentsRoutes } from './routes/appointments.js';
 import { metricsRoutes } from './routes/metrics.js';
 import { settingsRoutes } from './routes/settings.js';
+import { whatsappRoutes } from './routes/whatsapp.js';
 
 const app = fastify({ logger: true });
 
@@ -18,6 +19,7 @@ async function bootstrap() {
   await app.register(appointmentsRoutes, { prefix: '/api' });
   await app.register(metricsRoutes, { prefix: '/api' });
   await app.register(settingsRoutes, { prefix: '/api' });
+  await app.register(whatsappRoutes, { prefix: '/api' });
 
   const port = Number(process.env.PORT) || 3333;
   try {
