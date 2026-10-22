@@ -6,9 +6,12 @@
   "scripts": {
     "install:admin": "npm --prefix apps/web-admin install",
     "install:api": "npm --prefix apps/api install",
+    "install:client": "npm --prefix apps/web-client install",
     "dev:admin": "npm --prefix apps/web-admin run dev",
     "dev:api": "npm --prefix apps/api run dev",
+    "dev:client": "npm --prefix apps/web-client run dev",
     "build:admin": "npm --prefix apps/web-admin run build",
-    "build:api": "npm --prefix apps/api run build"
+    "build:api": "npm --prefix apps/api run build",
+    "build:client": "npm --prefix apps/web-client run build"
   }
 }
