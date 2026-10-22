@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { Palette, Percent, Split, Check, Sparkles, Loader2 } from 'lucide-vue-next';
-import { useThemeStore, type AccentColor } from '../stores/theme';
+import { useThemeStore, colorPresets, type AccentColor } from '../stores/theme';
+import { useToastStore } from '../stores/toast';
 import { api } from '../services/api';
 
 const themeStore = useThemeStore();
+const toast = useToastStore();
 
 const loading = ref(true);
 const saving = ref(false);
 const onlineDiscountActive = ref(true);
 const discountType = ref<'PERCENTAGE' | 'FIXED'>('PERCENTAGE');
 const discountValue = ref(10);
-const savedSuccess = ref(false);
-const errorMessage = ref<string | null>(null);
 
 async function loadSettings() {
   loading.value = true;
@@ -33,12 +33,11 @@ async function loadSettings() {
 
 function selectColor(key: AccentColor) {
   themeStore.setAccentColor(key);
+  toast.info(`Tema atualizado para ${colorPresets[key].name}.`, 'Identidade Visual');
 }
 
 async function saveSettings() {
   saving.value = true;
-  errorMessage.value = null;
-  savedSuccess.value = false;
 
   try {
     await api.updateSettings({
@@ -49,12 +48,12 @@ async function saveSettings() {
       onlineDiscountValue: Number(discountValue.value),
     });
 
-    savedSuccess.value = true;
-    setTimeout(() => {
-      savedSuccess.value = false;
-    }, 3000);
+    toast.success(
+      `As preferências e o desconto de ${discountValue.value}${discountType.value === 'PERCENTAGE' ? '%' : ' R$'} foram sincronizados.`,
+      'Configurações Salvas!'
+    );
   } catch (err: any) {
-    errorMessage.value = err.message || 'Erro ao salvar configurações no servidor';
+    toast.error(err.message || 'Não foi possível salvar as configurações no servidor.', 'Falha na Operação');
   } finally {
     saving.value = false;
   }
@@ -241,17 +240,8 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Save Button -->
-      <div class="flex items-center justify-between pt-4">
-        <div>
-          <span v-if="savedSuccess" class="text-xs text-emerald-600 font-bold flex items-center gap-1.5 animate-in fade-in">
-            <Check class="w-4 h-4" /> Configurações salvas e sincronizadas na API!
-          </span>
-          <span v-else-if="errorMessage" class="text-xs text-rose-500 font-bold">
-            {{ errorMessage }}
-          </span>
-        </div>
-
+      <!-- Action Button -->
+      <div class="flex items-center justify-end pt-4">
         <button 
           @click="saveSettings" 
           :disabled="saving"

@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import Header from './components/Header.vue';
 import AppointmentModal from './components/AppointmentModal.vue';
+import ToastContainer from './components/ToastContainer.vue';
 import { useThemeStore } from './stores/theme';
 
 const themeStore = useThemeStore();
@@ -14,7 +15,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen flex p-3 sm:p-5">
+  <div class="min-h-screen flex p-3 sm:p-5 relative">
+    <!-- Floating Toast Notifications (Top-Right) -->
+    <ToastContainer />
+
     <!-- Main Rounded Canvas Card matching Reference Design -->
     <div class="w-full bg-[#FAFAFC] dark:bg-[#11141E] border border-slate-200/80 dark:border-slate-800/80 rounded-[28px] shadow-sm flex overflow-hidden min-h-[92vh]">
       
