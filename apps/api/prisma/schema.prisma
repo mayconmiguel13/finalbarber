@@ -263,3 +263,61 @@ model WhatsAppSession {
   @@unique([orgId, customerPhone])
   @@map("whatsapp_sessions")
 }
+
+model WhatsAppSetting {
+  id                      String    @id @default("default")
+  orgId                   String?
+  instanceName            String    @default("barber-ia")
+  apiUrl                  String    @default("http://127.0.0.1:18080")
+  webhookUrl              String    @default("http://localhost:3333/api/webhooks/whatsapp")
+  connectedPhone          String?   @default("+55 11 98765-4321")
+  status                  String    @default("CONNECTED")
+  deviceModel             String?   @default("iPhone 15 Pro • WhatsApp Business")
+  batteryLevel            Int       @default(88)
+  isCharging              Boolean   @default(true)
+  assistantName           String    @default("Sofia")
+  aiModel                 String    @default("gemini-flash-lite-latest")
+  aiTone                  String    @default("BARBER_STREET")
+  pixDiscountPercent      Int       @default(10)
+  maxLateToleranceMinutes Int       @default(15)
+  offerComplimentaryBeer  Boolean   @default(true)
+  hasFreeParking          Boolean   @default(true)
+  customInstructions      String?   @db.Text
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@map("whatsapp_settings")
+}
+
+model WhatsAppNotification {
+  id            String    @id
+  key           String    @unique
+  title         String    @db.VarChar(120)
+  description   String    @db.Text
+  enabled       Boolean   @default(true)
+  triggerTime   String    @db.VarChar(80)
+  template      String    @db.Text
+  sentThisMonth Int       @default(0)
+  impactMetric  String    @db.VarChar(80)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("whatsapp_notifications")
+}
+
+model WhatsAppCampaign {
+  id               String    @id
+  name             String    @db.VarChar(150)
+  segment          String    @db.VarChar(100)
+  totalRecipients  Int       @default(0)
+  deliveredCount   Int       @default(0)
+  repliedCount     Int       @default(0)
+  bookingsCount    Int       @default(0)
+  revenueGenerated Decimal   @default(0.00) @db.Decimal(10, 2)
+  status           String    @default("COMPLETED")
+  messageText      String    @db.Text
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("whatsapp_campaigns")
+}
