@@ -40,6 +40,10 @@ export const useToastStore = defineStore('toast', () => {
     show({ title, message, type: 'info' });
   }
 
+  function warning(message: string, title = 'Aviso') {
+    show({ title, message, type: 'warning' });
+  }
+
   function remove(id: string) {
     toasts.value = toasts.value.filter((t) => t.id !== id);
   }
@@ -50,6 +54,7 @@ export const useToastStore = defineStore('toast', () => {
     success,
     error,
     info,
+    warning,
     remove,
   };
 });

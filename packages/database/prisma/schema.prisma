@@ -70,6 +70,14 @@ model Organization {
   // Configurações de Subadquirente / Asaas
   asaasWalletId       String?      @db.VarChar(100) // Subconta Asaas da Barbearia
 
+  // SaaS & Plan / Subscription Management (30 Dias Grátis)
+  planStatus          String       @default("TRIAL") @db.VarChar(20) // TRIAL, ACTIVE, EXPIRED, PAST_DUE
+  planTier            String       @default("PRO") @db.VarChar(20)   // STARTER, PRO, ENTERPRISE
+  trialEndsAt         DateTime?
+  subscriptionEndsAt  DateTime?
+  ownerName           String?      @db.VarChar(120)
+  onboardingCompleted Boolean      @default(false)
+
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
@@ -320,4 +328,42 @@ model WhatsAppCampaign {
   updatedAt        DateTime  @updatedAt
 
   @@map("whatsapp_campaigns")
+}
+
+
+model WhatsAppConversation {
+  id              String            @id
+  orgId           String?
+  customerPhone   String            @db.VarChar(25)
+  customerName    String            @db.VarChar(100)
+  avatar          String?           @db.VarChar(500)
+  unreadCount     Int               @default(0)
+  aiActive        Boolean           @default(true)
+  status          String            @default("AI_HANDLING")
+  lastMessage     String?           @db.Text
+  lastMessageTime String?           @db.VarChar(30)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  messages        WhatsAppMessage[]
+
+  @@index([customerPhone])
+  @@map("whatsapp_conversations")
+}
+
+model WhatsAppMessage {
+  id             String               @id @default(uuid())
+  conversationId String
+  sender         String               @db.VarChar(20) // 'client' | 'ai' | 'human'
+  text           String               @db.Text
+  time           String               @db.VarChar(30)
+  isAudio        Boolean              @default(false)
+  audioDuration  String?              @db.VarChar(20)
+  bookingData    Json?
+  pixCopiaCola   String?              @db.Text
+  mediaItems     Json?
+  createdAt      DateTime             @default(now())
+  conversation   WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("whatsapp_messages")
 }

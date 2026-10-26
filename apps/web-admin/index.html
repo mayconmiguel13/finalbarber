@@ -2,15 +2,40 @@
 <html lang="pt-BR" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Barber.ia - Painel de Gestão & Split</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/emblem-barblyclub.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    
+    <!-- PWA Primary Meta Tags -->
+    <title>BarblyClub | Gestão Inteligente, IA no WhatsApp &amp; Split para Barbearias</title>
+    <meta name="description" content="A secretária virtual com IA humanizada para barbearias. Atende 24h no WhatsApp, recebe sinal no Pix antecipado e divide comissões da Lei do Salão-Parceiro." />
+    <meta name="theme-color" content="#07090e" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Barbly" />
+    <meta name="application-name" content="BarblyClub" />
+    <meta name="format-detection" content="telephone=no" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-[#F4F5F9] dark:bg-[#0B0D13] text-slate-800 dark:text-slate-100 min-h-screen antialiased selection:bg-amber-500/20">
+  <body class="bg-[#F4F5F9] dark:bg-[#07090E] text-slate-800 dark:text-slate-100 min-h-screen antialiased selection:bg-amber-500/20">
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
+    <script>
+      // Registro do Service Worker do PWA
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').then((reg) => {
+            console.log('✅ [PWA] Service Worker BarblyClub registrado com sucesso:', reg.scope);
+          }).catch((err) => {
+            console.warn('⚠️ [PWA] Falha ao registrar Service Worker:', err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>

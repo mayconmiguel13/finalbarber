@@ -4,6 +4,7 @@ dist/
 .nuxt/
 .vite/
 *.log
+apps/api/data/
 .env
 .env.*
 !.env.example

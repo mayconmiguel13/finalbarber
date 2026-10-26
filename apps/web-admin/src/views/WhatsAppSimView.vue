@@ -30,6 +30,7 @@ import {
   Users,
   Flame,
   ArrowRight,
+  ArrowLeft,
   Search,
   Plus,
   Star,
@@ -55,7 +56,7 @@ type TabType = 'CHAT' | 'CONNECTION' | 'NOTIFICATIONS' | 'CAMPAIGNS' | 'AI_CONFI
 const activeTab = ref<TabType>('CHAT');
 
 // --- Backend Connection State ---
-const API_BASE = 'http://localhost:3333/api/whatsapp';
+const API_BASE = '/api/whatsapp';
 
 interface TelemetryState {
   status: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING' | 'QR_CODE';
@@ -80,8 +81,8 @@ const telemetry = ref<TelemetryState>({
   deviceModel: 'iPhone 15 Pro • WhatsApp Business',
   batteryLevel: 88,
   isCharging: true,
-  instanceName: 'barber-atelier88',
-  apiUrl: 'http://localhost:8080',
+  instanceName: 'barber-ia',
+  apiUrl: 'http://127.0.0.1:8088',
   webhookUrl: 'http://localhost:3333/api/webhooks/whatsapp',
   lastDisconnectAlert: null,
   stats: {
@@ -94,6 +95,8 @@ const telemetry = ref<TelemetryState>({
 // QR Code display
 const qrCodeData = ref<string>('');
 const qrExpiresIn = ref<number>(45);
+const evolutionOnline = ref<boolean>(true);
+const evolutionMessage = ref<string>('');
 
 // --- Live Conversations State ---
 interface ConversationItem {
@@ -136,10 +139,225 @@ const inputMessage = ref('');
 const sendingMessage = ref(false);
 const chatScrollContainer = ref<HTMLElement | null>(null);
 
+// Mobile navigation view ('list' | 'chat') & Mobile Dossier
+const mobileView = ref<'list' | 'chat'>('list');
+const isMobileDossierOpen = ref(false);
+
+// Takeover Dividers Tracking
+interface TakeoverDivider {
+  id: string;
+  convId: string;
+  text: string;
+  time: string;
+  atMessageIndex: number;
+}
+const takeoverDividers = ref<TakeoverDivider[]>([]);
+
+function recordTakeoverDivider(convId: string, text: string) {
+  const currentConv = conversations.value.find((c) => c.id === convId);
+  const atIndex = currentConv ? currentConv.messages.length : 0;
+  takeoverDividers.value.push({
+    id: `divider-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    convId,
+    text,
+    time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    atMessageIndex: atIndex,
+  });
+}
+
+// Audio Player Simulation State
+const playingAudioId = ref<string | null>(null);
+const audioProgress = ref<Record<string, number>>({});
+let audioInterval: any = null;
+
+const audioBarHeights = [
+  35, 65, 45, 80, 100, 70, 50, 85, 60, 40,
+  90, 75, 45, 95, 60, 40, 80, 55, 30, 20
+];
+
+function toggleAudio(msgId: string) {
+  if (playingAudioId.value === msgId) {
+    playingAudioId.value = null;
+    if (audioInterval) clearInterval(audioInterval);
+  } else {
+    playingAudioId.value = msgId;
+    if (!audioProgress.value[msgId]) audioProgress.value[msgId] = 0;
+    if (audioInterval) clearInterval(audioInterval);
+    audioInterval = setInterval(() => {
+      if (playingAudioId.value === msgId) {
+        if ((audioProgress.value[msgId] || 0) < 100) {
+          audioProgress.value[msgId] = (audioProgress.value[msgId] || 0) + 5;
+        } else {
+          audioProgress.value[msgId] = 0;
+          playingAudioId.value = null;
+          clearInterval(audioInterval);
+        }
+      }
+    }, 200);
+  }
+}
+
+// Simulation Modal State
+const isSimulateModalOpen = ref(false);
+const isSimulating = ref(false);
+const simulateForm = ref({
+  clientName: 'Arthur Silveira',
+  clientPhone: '+55 (11) 98765-4321',
+  message: 'Quero agendar um corte degradê para hoje',
+});
+
+const quickSimMessages = [
+  'Quero agendar um corte degradê para hoje',
+  'Qual o valor da Barboterapia?',
+  'Tem horário com o Diego às 16:30?',
+  'Quanto custa corte e barba no Pix?',
+  'Gostaria de ver os barbeiros disponíveis',
+  'Vocês têm cerveja e estacionamento cortesia?',
+];
+
+const clientPresets = [
+  { name: 'Arthur Silveira', phone: '+55 11 98765-4321', tag: 'Habitual' },
+  { name: 'Maycon Silva', phone: '+55 31 99123-4567', tag: 'Novo' },
+  { name: 'Rafael Costa', phone: '+55 21 98888-1122', tag: 'VIP' },
+];
+
+function selectClientPreset(preset: { name: string; phone: string }) {
+  simulateForm.value.clientName = preset.name;
+  simulateForm.value.clientPhone = preset.phone;
+}
+
+function selectMessagePreset(msg: string) {
+  simulateForm.value.message = msg;
+}
+
+function openSimulateModal(customMsg?: string) {
+  if (customMsg) {
+    simulateForm.value.message = customMsg;
+  }
+  isSimulateModalOpen.value = true;
+}
+
+async function runSimulation() {
+  if (!simulateForm.value.message.trim()) {
+    toast.show({
+      title: 'Mensagem Obrigatória',
+      message: 'Informe a mensagem que o cliente enviará.',
+      type: 'error',
+    });
+    return;
+  }
+
+  isSimulating.value = true;
+  try {
+    const res = await fetch(`${API_BASE}/simulate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientName: simulateForm.value.clientName || 'Arthur Silveira',
+        clientPhone: simulateForm.value.clientPhone || '+55 11 98765-4321',
+        message: simulateForm.value.message,
+      }),
+    });
+
+    if (res.ok) {
+      isSimulateModalOpen.value = false;
+
+      toast.show({
+        title: '🤖 Simulação Executada!',
+        message: `Sofia respondeu para ${simulateForm.value.clientName} em tempo real.`,
+        type: 'success',
+        duration: 5000,
+      });
+
+      // Reload conversations from backend
+      await fetchConversations();
+
+      // Find and select the simulated conversation
+      const cleanPhone = simulateForm.value.clientPhone.replace(/\D/g, '');
+      const matched = conversations.value.find(
+        (c) => c.customerPhone.replace(/\D/g, '') === cleanPhone || 
+               c.customerPhone.replace(/\D/g, '').includes(cleanPhone) || 
+               cleanPhone.includes(c.customerPhone.replace(/\D/g, '')) ||
+               c.id === `conv-${cleanPhone}`
+      );
+
+      if (matched) {
+        selectedConvId.value = matched.id;
+      } else if (conversations.value.length > 0) {
+        selectedConvId.value = conversations.value[0].id;
+      }
+
+      // Switch to CHAT tab and mobile chat view
+      activeTab.value = 'CHAT';
+      mobileView.value = 'chat';
+      scrollToBottom();
+    } else {
+      toast.show({
+        title: 'Erro na Simulação',
+        message: 'O servidor não pôde processar a mensagem simulada.',
+        type: 'error',
+      });
+    }
+  } catch (err) {
+    console.error(err);
+    toast.show({
+      title: 'Falha de Conexão',
+      message: 'Não foi possível contatar /api/whatsapp/simulate.',
+      type: 'error',
+    });
+  } finally {
+    isSimulating.value = false;
+  }
+}
+
+function runSimulationWithPreset(msg: string) {
+  simulateForm.value.message = msg;
+  runSimulation();
+}
+
 // Selected Conversation computed
 const activeConversation = computed(() => {
   if (!selectedConvId.value) return conversations.value[0] || null;
   return conversations.value.find((c) => c.id === selectedConvId.value) || null;
+});
+
+// Active Conversation Messages (with system takeover dividers interleaved)
+const activeConversationMessages = computed(() => {
+  if (!activeConversation.value) return [];
+  const msgs = [...activeConversation.value.messages];
+  const dividers = takeoverDividers.value.filter((d) => d.convId === activeConversation.value?.id);
+  if (dividers.length === 0) return msgs;
+
+  const sorted = [...dividers].sort((a, b) => a.atMessageIndex - b.atMessageIndex);
+  const result: any[] = [];
+  let dividerIdx = 0;
+
+  for (let i = 0; i <= msgs.length; i++) {
+    while (dividerIdx < sorted.length && sorted[dividerIdx].atMessageIndex === i) {
+      result.push({
+        id: sorted[dividerIdx].id,
+        sender: 'system' as const,
+        text: sorted[dividerIdx].text,
+        time: sorted[dividerIdx].time,
+      });
+      dividerIdx++;
+    }
+    if (i < msgs.length) {
+      result.push(msgs[i]);
+    }
+  }
+
+  while (dividerIdx < sorted.length) {
+    result.push({
+      id: sorted[dividerIdx].id,
+      sender: 'system' as const,
+      text: sorted[dividerIdx].text,
+      time: sorted[dividerIdx].time,
+    });
+    dividerIdx++;
+  }
+
+  return result;
 });
 
 // Filtered Conversations
@@ -508,7 +726,11 @@ async function fetchStatus() {
   try {
     const res = await fetch(`${API_BASE}/status`);
     if (res.ok) {
-      telemetry.value = await res.json();
+      const data = await res.json();
+      telemetry.value = data;
+      if (data.evolutionOnline !== undefined) {
+        evolutionOnline.value = data.evolutionOnline;
+      }
     }
   } catch (err) {
     console.error('Failed to load whatsapp status:', err);
@@ -614,21 +836,27 @@ async function loadQrCode() {
     const res = await fetch(`${API_BASE}/qrcode`);
     if (res.ok) {
       const data = await res.json();
-      qrCodeData.value = data.qrCodeData;
+      qrCodeData.value = data.qrCodeData || '';
+      evolutionOnline.value = data.evolutionOnline !== false;
+      evolutionMessage.value = data.message || '';
       qrExpiresIn.value = data.expiresInSeconds || 45;
 
       if (countdownInterval) clearInterval(countdownInterval);
-      countdownInterval = setInterval(() => {
-        if (qrExpiresIn.value > 0) {
-          qrExpiresIn.value--;
-        } else {
-          // Auto renew expired QR Code
-          loadQrCode();
-        }
-      }, 1000);
+      if (evolutionOnline.value && qrCodeData.value) {
+        countdownInterval = setInterval(() => {
+          if (qrExpiresIn.value > 0) {
+            qrExpiresIn.value--;
+          } else {
+            // Auto renew expired QR Code
+            loadQrCode();
+          }
+        }, 1000);
+      }
     }
   } catch (err) {
     console.error(err);
+    evolutionOnline.value = false;
+    evolutionMessage.value = 'Falha ao conectar com o servidor API.';
   } finally {
     loadingQr.value = false;
   }
@@ -706,6 +934,7 @@ onUnmounted(() => {
   if (statusInterval) clearInterval(statusInterval);
   if (countdownInterval) clearInterval(countdownInterval);
   if (chatInterval) clearInterval(chatInterval);
+  if (audioInterval) clearInterval(audioInterval);
 });
 
 // Toggle Human Takeover vs AI in Active Chat
@@ -723,18 +952,21 @@ async function toggleTakeover(aiActive: boolean) {
       activeConversation.value.status = updated.status;
 
       if (!aiActive) {
+        recordTakeoverDivider(activeConversation.value.id, '👤 Barbeiro assumiu o atendimento manual');
         toast.show({
           title: '👤 Você Assumiu o Atendimento!',
           message: `A IA foi pausada para ${activeConversation.value.customerName}. Responda diretamente ao cliente.`,
           type: 'info',
         });
       } else {
+        recordTakeoverDivider(activeConversation.value.id, '🤖 Secretária Virtual (IA) reassumiu o atendimento');
         toast.show({
           title: '🤖 IA Reativada!',
           message: `A Secretária Virtual reassumiu a conversa com ${activeConversation.value.customerName}.`,
           type: 'success',
         });
       }
+      scrollToBottom();
     }
   } catch (err) {
     console.error(err);
@@ -1046,6 +1278,14 @@ function handleAvatarError(e: Event, name?: string) {
         </button>
 
         <button 
+          @click="openSimulateModal()" 
+          class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-brand text-white hover:opacity-95 transition text-xs font-bold flex items-center gap-1.5 shadow-brand shrink-0"
+        >
+          <Sparkles class="w-4 h-4 text-amber-300" />
+          <span>Simular Novo Cliente</span>
+        </button>
+
+        <button 
           @click="isNewCampaignModalOpen = true" 
           class="px-3.5 py-2 rounded-xl bg-brand text-white hover:opacity-90 transition text-xs font-bold flex items-center gap-1.5 shadow-brand"
         >
@@ -1122,14 +1362,19 @@ function handleAvatarError(e: Event, name?: string) {
     <div v-if="activeTab === 'CHAT'" class="w-full h-auto lg:h-[calc(100vh-220px)] lg:min-h-[640px] grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 overflow-hidden">
       
       <!-- COLUMN 1: CONVERSATIONS LIST (3 Cols) -->
-      <div class="lg:col-span-3 h-[480px] lg:h-full bg-white dark:bg-[#131722] rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col shadow-sm overflow-hidden min-h-0">
+      <div 
+        class="h-[calc(100vh-210px)] min-h-[500px] lg:h-full bg-white dark:bg-[#131722] rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col shadow-sm overflow-hidden min-h-0"
+        :class="[
+          mobileView === 'chat' && activeConversation ? 'hidden lg:flex lg:col-span-3' : 'col-span-1 lg:col-span-3 flex'
+        ]"
+      >
         
         <!-- Search & Filter Header -->
         <div class="p-3.5 border-b border-slate-200/80 dark:border-slate-800/80 space-y-2.5 shrink-0">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
               <span>Mensagens WhatsApp</span>
-              <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500">
+              <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 font-semibold">
                 {{ conversations.length }}
               </span>
             </span>
@@ -1180,24 +1425,42 @@ function handleAvatarError(e: Event, name?: string) {
               <span>Barbeiro</span>
             </button>
           </div>
+
+          <!-- Quick Simulate Button Inside List Header -->
+          <button 
+            @click="openSimulateModal()"
+            class="w-full py-2 px-3 rounded-xl bg-brand/10 hover:bg-brand/15 text-brand dark:bg-brand/20 dark:hover:bg-brand/30 border border-brand/25 text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs"
+          >
+            <Sparkles class="w-3.5 h-3.5 text-brand" />
+            <span>+ Simular Novo Cliente</span>
+          </button>
         </div>
 
         <!-- List items -->
         <div class="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50 min-h-0 custom-scrollbar">
-          <div v-if="filteredConversations.length === 0" class="p-8 flex flex-col items-center justify-center text-center space-y-2 text-slate-400">
-            <div class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center">
-              <MessageSquareCode class="w-5 h-5" />
+          <div v-if="filteredConversations.length === 0" class="p-6 flex flex-col items-center justify-center text-center space-y-3 text-slate-400">
+            <div class="w-12 h-12 rounded-2xl bg-brand/10 text-brand flex items-center justify-center shadow-xs">
+              <MessageSquareCode class="w-6 h-6" />
             </div>
-            <p class="text-xs font-semibold text-slate-700 dark:text-slate-300">Nenhuma conversa encontrada</p>
-            <p class="text-[11px] text-slate-400 max-w-[200px] leading-relaxed">
-              As conversas reais de clientes no WhatsApp aparecerão aqui automaticamente.
-            </p>
+            <div>
+              <p class="text-xs font-bold text-slate-700 dark:text-slate-300">Nenhuma conversa encontrada</p>
+              <p class="text-[11px] text-slate-400 max-w-[210px] leading-relaxed mt-0.5">
+                Inicie um teste agora simulando um cliente ou aguarde mensagens reais do WhatsApp.
+              </p>
+            </div>
+            <button 
+              @click="openSimulateModal()"
+              class="px-3.5 py-1.5 rounded-xl bg-brand text-white text-xs font-bold hover:opacity-90 transition flex items-center gap-1.5 shadow-brand"
+            >
+              <Sparkles class="w-3.5 h-3.5 text-amber-300" />
+              <span>Simular Cliente Agora</span>
+            </button>
           </div>
 
           <div 
             v-for="conv in filteredConversations" 
             :key="conv.id"
-            @click="selectedConvId = conv.id; scrollToBottom();"
+            @click="selectedConvId = conv.id; mobileView = 'chat'; scrollToBottom();"
             class="p-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition flex items-start gap-3 relative group"
             :class="selectedConvId === conv.id ? 'bg-brand-light/40 dark:bg-brand/10 border-l-4 border-brand' : ''"
           >
@@ -1268,11 +1531,26 @@ function handleAvatarError(e: Event, name?: string) {
       </div>
 
       <!-- COLUMN 2: ACTIVE CHAT THREAD (6 Cols) -->
-      <div v-if="activeConversation" class="lg:col-span-6 h-[640px] lg:h-full bg-white dark:bg-[#131722] rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col shadow-sm overflow-hidden min-h-0">
+      <div 
+        v-if="activeConversation" 
+        class="h-[calc(100vh-210px)] min-h-[500px] lg:h-full bg-white dark:bg-[#131722] rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col shadow-sm overflow-hidden min-h-0"
+        :class="[
+          mobileView === 'list' ? 'hidden lg:flex lg:col-span-6' : 'col-span-1 lg:col-span-6 flex'
+        ]"
+      >
         
         <!-- Chat Top Bar with Customer Info & TAKEOVER BUTTON -->
         <div class="p-3.5 sm:p-4 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/30 shrink-0">
-          <div class="flex items-center gap-3 min-w-0">
+          <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <!-- Mobile Back Button -->
+            <button 
+              @click="mobileView = 'list'" 
+              class="lg:hidden p-1.5 -ml-1 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 transition shrink-0"
+              title="Voltar para a lista de conversas"
+            >
+              <ArrowLeft class="w-5 h-5" />
+            </button>
+
             <img 
               :src="activeConversation?.avatar" 
               @error="handleAvatarError($event, activeConversation?.customerName)"
@@ -1283,24 +1561,34 @@ function handleAvatarError(e: Event, name?: string) {
                 <h3 class="text-sm font-bold text-slate-900 dark:text-white truncate">
                   {{ activeConversation?.customerName }}
                 </h3>
-                <span class="text-[11px] text-slate-400 shrink-0">({{ activeConversation?.customerPhone }})</span>
+                <span class="text-[11px] text-slate-400 shrink-0 hidden sm:inline">({{ activeConversation?.customerPhone }})</span>
               </div>
               <div class="flex items-center gap-2 text-[11px] text-slate-500 truncate">
                 <span class="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                <span>Online no WhatsApp</span>
-                <span>•</span>
-                <span class="truncate">Barbeiro habitual: <strong class="text-slate-700 dark:text-slate-300">{{ activeConversation?.customerDetails?.preferredBarber }}</strong></span>
+                <span>WhatsApp Online</span>
+                <span class="hidden sm:inline">•</span>
+                <span class="truncate hidden sm:inline">Barbeiro habitual: <strong class="text-slate-700 dark:text-slate-300">{{ activeConversation?.customerDetails?.preferredBarber }}</strong></span>
               </div>
             </div>
           </div>
 
-          <!-- TAKEOVER BUTTON (CRITICAL USER REQUIREMENT) -->
+          <!-- Chat Top Actions (Dossier toggle + Takeover) -->
           <div class="flex items-center gap-2 shrink-0">
+            <!-- Mobile Dossier Toggle -->
+            <button 
+              @click="isMobileDossierOpen = true"
+              class="lg:hidden p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition"
+              title="Ver Dossiê do Cliente"
+            >
+              <User class="w-4 h-4 text-brand" />
+            </button>
+
+            <!-- TAKEOVER BUTTON (CRITICAL USER REQUIREMENT) -->
             <!-- If AI is active, allow Barber to Take Over -->
             <button 
               v-if="activeConversation?.aiActive" 
               @click="toggleTakeover(false)"
-              class="px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 dark:hover:bg-amber-900/60 border border-amber-300 dark:border-amber-800 text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+              class="px-3 sm:px-3.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 dark:hover:bg-amber-900/60 border border-amber-300 dark:border-amber-800 text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
             >
               <User class="w-3.5 h-3.5" />
               <span>Assumir Atendimento</span>
@@ -1310,7 +1598,7 @@ function handleAvatarError(e: Event, name?: string) {
             <button 
               v-else 
               @click="toggleTakeover(true)"
-              class="px-3.5 py-1.5 rounded-xl bg-brand text-white hover:opacity-90 text-xs font-bold transition flex items-center gap-1.5 shadow-brand"
+              class="px-3 sm:px-3.5 py-1.5 rounded-xl bg-brand text-white hover:opacity-90 text-xs font-bold transition flex items-center gap-1.5 shadow-brand"
             >
               <Bot class="w-3.5 h-3.5" />
               <span>Devolver para IA</span>
@@ -1323,11 +1611,11 @@ function handleAvatarError(e: Event, name?: string) {
           v-if="!activeConversation?.aiActive" 
           class="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200/80 dark:border-amber-900/40 px-4 py-2 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300 shrink-0"
         >
-          <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
-            <span><strong>Você está no controle:</strong> A IA está pausada para este cliente. Suas mensagens serão enviadas diretamente.</span>
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping shrink-0"></span>
+            <span class="truncate"><strong>Você está no controle:</strong> IA pausada. Suas mensagens vão direto ao cliente.</span>
           </div>
-          <button @click="toggleTakeover(true)" class="underline font-bold text-[11px] hover:text-amber-900">
+          <button @click="toggleTakeover(true)" class="underline font-bold text-[11px] hover:text-amber-900 shrink-0 ml-2">
             Reativar IA
           </button>
         </div>
@@ -1338,94 +1626,225 @@ function handleAvatarError(e: Event, name?: string) {
           class="flex-1 p-4 overflow-y-auto space-y-3.5 bg-[#F4F5F7] dark:bg-[#0E111A] min-h-0 custom-scrollbar"
         >
           <div 
-            v-for="msg in activeConversation?.messages || []" 
+            v-for="msg in activeConversationMessages" 
             :key="msg.id"
             class="flex flex-col"
-            :class="msg.sender === 'client' ? 'items-start' : 'items-end'"
+            :class="msg.sender === 'client' ? 'items-start' : (msg.sender === 'system' ? 'items-center' : 'items-end')"
           >
-            <!-- SENDER BADGE -->
-            <span class="text-[10px] text-slate-400 mb-1 px-1">
-              {{ msg.sender === 'client' ? activeConversation?.customerName : (msg.sender === 'ai' ? '🤖 Secretária Virtual (IA)' : '👤 Barbeiro (Você)') }}
-            </span>
-
-            <!-- MESSAGE BUBBLE -->
-            <div 
-              class="max-w-[85%] rounded-2xl px-4 py-2.5 text-xs shadow-xs relative leading-relaxed"
-              :class="[
-                msg.sender === 'client' 
-                  ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-tl-xs' 
-                  : msg.sender === 'ai'
-                    ? 'bg-brand text-white rounded-tr-xs'
-                    : 'bg-emerald-600 text-white rounded-tr-xs'
-              ]"
-            >
-              <!-- Photos / Media attached to message (Barbers profiles) -->
-              <div v-if="msg.mediaItems && msg.mediaItems.length" class="mb-2 space-y-2">
-                <div 
-                  v-for="(media, mIdx) in msg.mediaItems" 
-                  :key="mIdx" 
-                  class="rounded-xl overflow-hidden border border-white/20 bg-black/20 shadow-sm"
+            <!-- SYSTEM TAKEOVER DIVIDER -->
+            <div v-if="msg.sender === 'system'" class="w-full flex items-center justify-center my-3 py-1">
+              <div class="relative flex py-1 items-center w-full max-w-md">
+                <div class="flex-grow border-t border-slate-300/80 dark:border-slate-800"></div>
+                <span 
+                  class="flex-shrink mx-3 px-3.5 py-1.5 rounded-full text-[11px] font-semibold tracking-wide flex items-center gap-1.5 shadow-xs border"
+                  :class="msg.text.includes('Barbeiro') 
+                    ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/60'
+                    : 'bg-brand-light text-brand border-brand/30 dark:bg-brand/20 dark:text-brand-light dark:border-brand/40'"
                 >
-                  <img :src="media.url" :alt="media.caption || 'Foto Barbeiro'" class="w-full max-h-48 object-cover object-top" />
-                  <div v-if="media.caption" class="p-2 text-[11px] whitespace-pre-line bg-black/40 text-white font-medium">
-                    {{ media.caption }}
-                  </div>
-                </div>
-              </div>
-
-              <!-- Voice Note Bubble -->
-              <div v-if="msg.isAudio" class="flex items-center gap-3 py-1">
-                <button class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-100 flex items-center justify-center shrink-0">
-                  <Play class="w-4 h-4 ml-0.5" />
-                </button>
-                <div class="flex-1 min-w-[120px]">
-                  <div class="h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                    <div class="w-1/3 h-full bg-brand rounded-full"></div>
-                  </div>
-                  <div class="flex items-center justify-between text-[10px] text-slate-400 mt-1">
-                    <span>Áudio WhatsApp</span>
-                    <span>{{ msg.audioDuration || '0:08' }}</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Text Message -->
-              <div v-else class="whitespace-pre-line">
-                {{ msg.text }}
-              </div>
-
-              <!-- PIX Copia e Cola Card if present -->
-              <div 
-                v-if="msg.pixCopiaCola" 
-                class="mt-3 p-2.5 bg-black/20 rounded-xl border border-white/20 text-white space-y-2"
-              >
-                <div class="flex items-center justify-between">
-                  <span class="text-[11px] font-bold flex items-center gap-1.5">
-                    <Zap class="w-3.5 h-3.5 text-amber-300" />
-                    Chave Pix (10% OFF Aplicado)
-                  </span>
-                  <button 
-                    @click="copyPix(msg.pixCopiaCola)" 
-                    class="text-[10px] px-2 py-1 rounded bg-white text-slate-900 font-bold hover:bg-slate-100 transition flex items-center gap-1"
-                  >
-                    <Copy class="w-3 h-3" />
-                    <span>Copiar Pix</span>
-                  </button>
-                </div>
-                <div class="font-mono text-[10px] bg-black/30 p-1.5 rounded truncate select-all">
-                  {{ msg.pixCopiaCola }}
-                </div>
-              </div>
-
-              <!-- Timestamp & Double Checkmarks -->
-              <div 
-                class="flex items-center justify-end gap-1 mt-1 text-[10px]"
-                :class="msg.sender === 'client' ? 'text-slate-400' : 'text-white/80'"
-              >
-                <span>{{ msg.time }}</span>
-                <CheckCheck v-if="msg.sender !== 'client'" class="w-3.5 h-3.5 text-emerald-300" />
+                  — {{ msg.text }} —
+                </span>
+                <div class="flex-grow border-t border-slate-300/80 dark:border-slate-800"></div>
               </div>
             </div>
+
+            <!-- REGULAR CHAT MESSAGE (Client / AI / Human) -->
+            <template v-else>
+              <!-- SENDER BADGE -->
+              <span class="text-[10px] text-slate-400 mb-1 px-1">
+                {{ msg.sender === 'client' ? activeConversation?.customerName : (msg.sender === 'ai' ? '🤖 Secretária Virtual (IA)' : '👤 Barbeiro (Você)') }}
+              </span>
+
+              <!-- MESSAGE BUBBLE -->
+              <div 
+                class="max-w-[85%] rounded-2xl px-4 py-2.5 text-xs shadow-xs relative leading-relaxed"
+                :class="[
+                  msg.sender === 'client' 
+                    ? 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-tl-xs border border-slate-200/50 dark:border-slate-700/50' 
+                    : msg.sender === 'ai'
+                      ? 'bg-brand text-white rounded-tr-xs'
+                      : 'bg-emerald-600 text-white rounded-tr-xs'
+                ]"
+              >
+                <!-- Photos / Media attached to message (Barbers profiles) -->
+                <div v-if="msg.mediaItems && msg.mediaItems.length" class="mb-2 space-y-2">
+                  <div 
+                    v-for="(media, mIdx) in msg.mediaItems" 
+                    :key="mIdx" 
+                    class="rounded-xl overflow-hidden border border-white/20 bg-black/20 shadow-sm"
+                  >
+                    <img :src="media.url" :alt="media.caption || 'Foto Barbeiro'" class="w-full max-h-48 object-cover object-top" />
+                    <div v-if="media.caption" class="p-2 text-[11px] whitespace-pre-line bg-black/40 text-white font-medium">
+                      {{ media.caption }}
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Voice Note Bubble (Stylized with Waveform & Play/Pause) -->
+                <div v-if="msg.isAudio" class="py-1 space-y-2 w-full min-w-[220px] sm:min-w-[260px]">
+                  <div class="flex items-center gap-3">
+                    <!-- Play/Pause Button -->
+                    <button 
+                      @click="toggleAudio(msg.id)"
+                      class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition shadow-sm"
+                      :class="msg.sender === 'client' 
+                        ? 'bg-brand text-white hover:bg-brand-dark' 
+                        : 'bg-white text-slate-900 hover:bg-slate-100'"
+                      :title="playingAudioId === msg.id ? 'Pausar áudio' : 'Ouvir mensagem de voz'"
+                    >
+                      <Pause v-if="playingAudioId === msg.id" class="w-4 h-4 fill-current" />
+                      <Play v-else class="w-4 h-4 ml-0.5 fill-current" />
+                    </button>
+
+                    <!-- Simulated Sound Waveform -->
+                    <div class="flex-1 space-y-1.5 min-w-0">
+                      <div class="flex items-center gap-0.5 sm:gap-1 h-7">
+                        <div 
+                          v-for="(h, bIdx) in audioBarHeights" 
+                          :key="bIdx"
+                          class="flex-1 rounded-full transition-all duration-150"
+                          :style="{ height: `${h}%` }"
+                          :class="[
+                            (audioProgress[msg.id] || 0) >= ((bIdx + 1) / audioBarHeights.length * 100)
+                              ? (msg.sender === 'client' ? 'bg-brand' : 'bg-white')
+                              : (msg.sender === 'client' ? 'bg-slate-300 dark:bg-slate-600' : 'bg-white/40'),
+                            playingAudioId === msg.id && Math.abs((audioProgress[msg.id] || 0) - (bIdx / audioBarHeights.length * 100)) < 15 ? 'scale-y-125' : ''
+                          ]"
+                        ></div>
+                      </div>
+
+                      <div 
+                        class="flex items-center justify-between text-[10px]"
+                        :class="msg.sender === 'client' ? 'text-slate-400' : 'text-white/80'"
+                      >
+                        <span class="flex items-center gap-1">
+                          <Mic class="w-3 h-3" />
+                          <span>Mensagem de Voz</span>
+                        </span>
+                        <span class="font-mono">
+                          {{ playingAudioId === msg.id ? `0:0${Math.min(8, Math.floor((audioProgress[msg.id] || 0) * 0.08))}` : (msg.audioDuration || '0:08') }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Audio Transcript Preview Pill -->
+                  <div 
+                    v-if="msg.text" 
+                    class="text-[11px] p-2 rounded-xl italic leading-relaxed border"
+                    :class="msg.sender === 'client' 
+                      ? 'bg-slate-50 dark:bg-slate-900/40 text-slate-600 dark:text-slate-300 border-slate-200/60 dark:border-slate-700/60' 
+                      : 'bg-black/20 text-white/90 border-white/15'"
+                  >
+                    "{{ msg.text.replace(/🎤\s*\[Mensagem de Áudio.*?:\s*"(.*?)"\]/g, '$1') }}"
+                  </div>
+                </div>
+
+                <!-- Text Message -->
+                <div v-else class="whitespace-pre-line">
+                  {{ msg.text }}
+                </div>
+
+                <!-- Booking Confirmation Card (when bookingData is present) -->
+                <div 
+                  v-if="msg.bookingData" 
+                  class="mt-3 p-3.5 rounded-xl border transition shadow-sm space-y-2.5"
+                  :class="[
+                    msg.sender === 'client' 
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-slate-800 dark:text-slate-100'
+                      : 'bg-emerald-950/40 border-emerald-400/40 text-white'
+                  ]"
+                >
+                  <div class="flex items-center justify-between gap-2 border-b border-white/15 pb-2">
+                    <div class="flex items-center gap-1.5">
+                      <div class="w-6 h-6 rounded-lg bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                        <Calendar class="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span class="text-xs font-bold block">Reserva Identificada</span>
+                        <span class="text-[10px] text-emerald-300 font-semibold block">Horário Reservado na Agenda</span>
+                      </div>
+                    </div>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                      Pré-Agendado
+                    </span>
+                  </div>
+
+                  <div class="grid grid-cols-2 gap-2 text-[11px]">
+                    <div class="bg-black/20 p-2 rounded-lg">
+                      <span class="text-[10px] text-slate-300 block font-medium">Serviço</span>
+                      <strong class="font-bold truncate block">{{ msg.bookingData.service }}</strong>
+                    </div>
+                    <div class="bg-black/20 p-2 rounded-lg">
+                      <span class="text-[10px] text-slate-300 block font-medium">Barbeiro</span>
+                      <strong class="font-bold truncate block">{{ msg.bookingData.barber }}</strong>
+                    </div>
+                    <div class="bg-black/20 p-2 rounded-lg">
+                      <span class="text-[10px] text-slate-300 block font-medium">Data & Horário</span>
+                      <strong class="font-bold truncate block">{{ msg.bookingData.date }} às {{ msg.bookingData.time }}</strong>
+                    </div>
+                    <div class="bg-black/20 p-2 rounded-lg">
+                      <span class="text-[10px] text-slate-300 block font-medium">Valor no Pix</span>
+                      <strong class="font-bold text-emerald-400 truncate block">
+                        R$ {{ Number(msg.bookingData.finalPrice || msg.bookingData.originalPrice || 0).toFixed(2) }}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- PIX Copia e Cola Card (Prominent & Stylish) -->
+                <div 
+                  v-if="msg.pixCopiaCola" 
+                  class="mt-3 p-3.5 rounded-xl border transition shadow-sm space-y-2.5"
+                  :class="[
+                    msg.sender === 'client' 
+                      ? 'bg-amber-500/10 border-amber-500/30 text-slate-800 dark:text-slate-100'
+                      : 'bg-black/30 border-white/25 text-white'
+                  ]"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-1.5 min-w-0">
+                      <div class="w-6 h-6 rounded-lg bg-amber-400 text-slate-900 flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                        <Zap class="w-3.5 h-3.5 fill-current" />
+                      </div>
+                      <div>
+                        <span class="text-xs font-bold block truncate">Pagamento Pix Copia e Cola</span>
+                        <span class="text-[10px] text-amber-300 font-semibold block">10% de Desconto Aplicado</span>
+                      </div>
+                    </div>
+                    <button 
+                      @click="copyPix(msg.pixCopiaCola)" 
+                      class="text-[11px] px-3 py-1.5 rounded-lg bg-white text-slate-900 hover:bg-slate-100 active:scale-95 font-bold transition flex items-center gap-1.5 shadow-xs shrink-0"
+                    >
+                      <Check v-if="copiedPix === msg.pixCopiaCola" class="w-3.5 h-3.5 text-emerald-600" />
+                      <Copy v-else class="w-3.5 h-3.5" />
+                      <span>{{ copiedPix === msg.pixCopiaCola ? 'Copiado!' : 'Copiar Pix' }}</span>
+                    </button>
+                  </div>
+
+                  <div class="font-mono text-[10px] bg-black/40 border border-white/10 p-2 rounded-lg select-all break-all text-slate-200">
+                    {{ msg.pixCopiaCola }}
+                  </div>
+
+                  <div class="flex items-center justify-between text-[10px] opacity-80 pt-0.5">
+                    <span>⚡ Compensação automática via Webhook</span>
+                    <span>Validade: 15 min</span>
+                  </div>
+                </div>
+
+                <!-- Timestamp & Subtle Double Checkmarks -->
+                <div 
+                  class="flex items-center justify-end gap-1 mt-1 text-[10px]"
+                  :class="msg.sender === 'client' ? 'text-slate-400' : 'text-white/80'"
+                >
+                  <span>{{ msg.time }}</span>
+                  <CheckCheck 
+                    v-if="msg.sender !== 'client'" 
+                    class="w-3.5 h-3.5 text-sky-300 dark:text-sky-200" 
+                    title="Mensagem lida pelo cliente"
+                  />
+                </div>
+              </div>
+            </template>
           </div>
         </div>
 
@@ -1488,8 +1907,10 @@ function handleAvatarError(e: Event, name?: string) {
       </div>
 
       <!-- COLUMN 3: CUSTOMER CRM DOSSIER (3 Cols) -->
-      <div v-if="activeConversation" class="lg:col-span-3 h-auto lg:h-full overflow-y-auto space-y-4 pr-1 min-h-0 custom-scrollbar">
-        
+      <div 
+        v-if="activeConversation" 
+        class="hidden lg:block lg:col-span-3 h-auto lg:h-full overflow-y-auto space-y-4 pr-1 min-h-0 custom-scrollbar"
+      >
         <!-- Dossier Card -->
         <div class="bg-white dark:bg-[#131722] rounded-2xl border border-slate-200/80 dark:border-slate-800/80 p-5 shadow-sm space-y-4">
           <div class="flex items-center justify-between">
@@ -1564,18 +1985,34 @@ function handleAvatarError(e: Event, name?: string) {
             A IA já respondeu a <strong>88% das mensagens</strong> hoje sem interromper o corte do barbeiro, economizando <strong>2h 15m</strong> de digitação.
           </p>
         </div>
-
       </div>
 
       <!-- EMPTY STATE WHEN NO CONVERSATION IS SELECTED -->
-      <div v-else class="lg:col-span-9 bg-white dark:bg-[#131722] rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col items-center justify-center p-12 text-center min-h-[620px] shadow-sm">
-        <div class="w-16 h-16 rounded-2xl bg-brand/10 text-brand flex items-center justify-center mb-4 shadow-sm">
+      <div v-else class="lg:col-span-9 bg-white dark:bg-[#131722] rounded-2xl border border-slate-200/80 dark:border-slate-800/80 flex flex-col items-center justify-center p-8 sm:p-12 text-center min-h-[500px] lg:min-h-[620px] shadow-sm">
+        <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand/10 to-violet-500/10 text-brand flex items-center justify-center mb-4 shadow-sm border border-brand/20">
           <Bot class="w-8 h-8" />
         </div>
         <h3 class="text-base font-bold text-slate-900 dark:text-white">Central de Atendimento ao Vivo</h3>
         <p class="text-xs text-slate-500 dark:text-slate-400 mt-1.5 max-w-md leading-relaxed">
           Nenhuma conversa selecionada no momento. Todas as conversas reais dos clientes que enviarem mensagens para o WhatsApp da sua barbearia (<strong>{{ telemetry.connectedPhone || '+55 (31) 7319-7723' }}</strong>) aparecerão aqui em tempo real.
         </p>
+
+        <div class="mt-5 flex flex-wrap items-center justify-center gap-3">
+          <button 
+            @click="openSimulateModal()"
+            class="px-5 py-2.5 rounded-xl bg-brand text-white text-xs font-bold hover:opacity-90 transition flex items-center gap-2 shadow-brand"
+          >
+            <Sparkles class="w-4 h-4 text-amber-300" />
+            <span>Simular Novo Cliente com IA</span>
+          </button>
+          <button 
+            @click="runSimulationWithPreset('Quero agendar um corte degradê para hoje')"
+            class="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold transition"
+          >
+            Testar "Quero agendar corte degradê"
+          </button>
+        </div>
+
         <div class="mt-6 p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 flex items-center gap-2.5">
           <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
           <span>A Sofia (IA Gemini Flash) está conectada e pronta para responder aos clientes.</span>
@@ -1642,56 +2079,102 @@ function handleAvatarError(e: Event, name?: string) {
             </div>
 
             <!-- When generating/scanning QR Code -->
-            <div v-else class="flex flex-col items-center">
-              <div class="w-64 h-64 sm:w-72 sm:h-72 bg-white p-3 rounded-2xl shadow-lg border-2 border-brand/30 flex items-center justify-center relative">
-                <!-- Loading State -->
-                <div v-if="loadingQr" class="flex flex-col items-center text-center p-4">
-                  <RefreshCw class="w-8 h-8 text-brand animate-spin mb-2" />
-                  <span class="text-xs font-bold text-slate-700">Gerando QR Code ao vivo...</span>
-                  <span class="text-[10px] text-slate-400 mt-0.5">Conectando à Evolution API</span>
+            <div v-else class="flex flex-col items-center w-full">
+              <!-- Case 1: Evolution API is OFFLINE -->
+              <div v-if="!evolutionOnline" class="w-full max-w-sm bg-amber-500/10 dark:bg-amber-950/20 border-2 border-dashed border-amber-500/30 rounded-2xl p-5 flex flex-col items-center text-center">
+                <div class="w-12 h-12 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center mb-3">
+                  <AlertTriangle class="w-6 h-6" />
+                </div>
+                <h4 class="text-sm font-bold text-slate-800 dark:text-slate-100">Evolution API Desconectada</h4>
+                <p class="text-xs text-slate-500 dark:text-slate-400 mt-1.5 leading-relaxed">
+                  O container ou serviço da Evolution API não está rodando no endereço <code class="font-mono text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 px-1 py-0.5 rounded">{{ telemetry.apiUrl }}</code>.
+                </p>
+
+                <div class="mt-4 flex flex-col gap-2 w-full">
+                  <!-- Simulation Quick Connect -->
+                  <button 
+                    @click="setConnection('CONNECTED')" 
+                    class="w-full py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition"
+                  >
+                    <CheckCircle2 class="w-4 h-4" />
+                    <span>🧪 Simular Aparelho Conectado (Testar Módulo)</span>
+                  </button>
+
+                  <button 
+                    @click="loadQrCode()" 
+                    :disabled="loadingQr"
+                    class="w-full py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs flex items-center justify-center gap-2 transition"
+                  >
+                    <RefreshCw class="w-3.5 h-3.5" :class="loadingQr ? 'animate-spin' : ''" />
+                    <span>Testar Conexão com Evolution API</span>
+                  </button>
                 </div>
 
-                <!-- Live Base64 QR Code -->
-                <div v-else-if="qrCodeData" class="flex flex-col items-center">
+                <div class="mt-4 p-3 rounded-xl bg-white/60 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800 text-left w-full text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
+                  <span class="font-bold text-slate-700 dark:text-slate-300 block">Como ativar o QR Code real:</span>
+                  <span>1. Abra o <strong>Docker Desktop</strong> na máquina</span>
+                  <span class="block">2. Inicie a Evolution API com Baileys</span>
+                  <span class="block">3. Aponte a câmera do WhatsApp para o QR Code</span>
+                </div>
+              </div>
+
+              <!-- Case 2: Loading QR Code -->
+              <div v-else-if="loadingQr" class="w-64 h-64 sm:w-72 sm:h-72 bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-lg border-2 border-brand/30 flex flex-col items-center justify-center text-center">
+                <RefreshCw class="w-8 h-8 text-brand animate-spin mb-2" />
+                <span class="text-xs font-bold text-slate-700 dark:text-slate-200">Gerando QR Code ao vivo...</span>
+                <span class="text-[10px] text-slate-400 mt-0.5">Conectando à Evolution API</span>
+              </div>
+
+              <!-- Case 3: Live Base64 QR Code -->
+              <div v-else-if="qrCodeData" class="flex flex-col items-center">
+                <div class="w-64 h-64 sm:w-72 sm:h-72 bg-white p-3 rounded-2xl shadow-lg border-2 border-brand/30 flex items-center justify-center relative">
                   <img :src="qrCodeData" class="w-56 h-56 sm:w-64 sm:h-64 object-contain" alt="QR Code WhatsApp Real">
                 </div>
 
-                <!-- Fallback pulse -->
-                <div v-else class="flex flex-col items-center text-center p-4">
-                  <QrCode class="w-24 h-24 text-slate-400 animate-pulse mb-2" />
-                  <span class="text-xs text-slate-500">Clique abaixo para gerar</span>
+                <!-- Live Expiration & Refresh Pill -->
+                <div class="flex items-center gap-2 mt-4">
+                  <span class="px-3 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Clock class="w-3.5 h-3.5 text-brand" />
+                    <span>Renova em: <strong>{{ qrExpiresIn }}s</strong></span>
+                  </span>
+                  <button 
+                    @click="loadQrCode()" 
+                    :disabled="loadingQr"
+                    title="Atualizar QR Code agora"
+                    class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition"
+                  >
+                    <RefreshCw class="w-3.5 h-3.5" :class="loadingQr ? 'animate-spin' : ''" />
+                  </button>
+                </div>
+
+                <!-- Radar Status -->
+                <div class="flex items-center gap-2 mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                  <span>Aguardando leitura pela câmera do WhatsApp...</span>
                 </div>
               </div>
 
-              <!-- Live Expiration & Refresh Pill -->
-              <div class="flex items-center gap-2 mt-4">
-                <span class="px-3 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-[11px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Clock class="w-3.5 h-3.5 text-brand" />
-                  <span>Renova em: <strong>{{ qrExpiresIn }}s</strong></span>
-                </span>
-                <button 
-                  @click="loadQrCode()" 
-                  :disabled="loadingQr"
-                  title="Atualizar QR Code agora"
-                  class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition"
-                >
-                  <RefreshCw class="w-3.5 h-3.5" :class="loadingQr ? 'animate-spin' : ''" />
-                </button>
+              <!-- Case 4: Fallback pulse / Click to generate -->
+              <div v-else class="flex flex-col items-center">
+                <div class="w-64 h-64 sm:w-72 sm:h-72 bg-white dark:bg-slate-800 p-3 rounded-2xl shadow-lg border-2 border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center text-center p-4">
+                  <QrCode class="w-24 h-24 text-slate-400 animate-pulse mb-2" />
+                  <span class="text-xs text-slate-500">Clique abaixo para gerar</span>
+                  <button 
+                    @click="loadQrCode()" 
+                    class="mt-3 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:opacity-90 transition"
+                  >
+                    Gerar QR Code
+                  </button>
+                </div>
               </div>
 
-              <!-- Radar Status -->
-              <div class="flex items-center gap-2 mt-2 text-xs text-slate-500 dark:text-slate-400">
-                <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
-                <span>Aguardando leitura pela câmera do WhatsApp...</span>
-              </div>
+              <!-- Steps -->
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-5 text-center max-w-sm leading-relaxed bg-white/60 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+                1. Abra o <strong>WhatsApp</strong> no celular da sua barbearia<br>
+                2. Toque em <strong>Configurações</strong> &gt; <strong>Aparelhos Conectados</strong><br>
+                3. Toque em <strong>Conectar um aparelho</strong> e aponte a câmera
+              </p>
             </div>
-
-            <!-- Steps -->
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-5 text-center max-w-sm leading-relaxed bg-white/60 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
-              1. Abra o <strong>WhatsApp</strong> no celular da sua barbearia<br>
-              2. Toque em <strong>Configurações</strong> &gt; <strong>Aparelhos Conectados</strong><br>
-              3. Toque em <strong>Conectar um aparelho</strong> e aponte a câmera
-            </p>
           </div>
         </div>
 
@@ -2455,6 +2938,198 @@ function handleAvatarError(e: Event, name?: string) {
           >
             <RefreshCw v-if="savingNotif" class="w-3.5 h-3.5 animate-spin" />
             <span>Salvar no Banco de Dados</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: SIMULAR CLIENTE / INICIAR TESTE COM IA                  -->
+    <!-- ============================================================== -->
+    <div 
+      v-if="isSimulateModalOpen"
+      class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in"
+    >
+      <div class="bg-white dark:bg-[#131722] rounded-2xl max-w-lg w-full border border-slate-200 dark:border-slate-800 p-6 shadow-2xl space-y-4">
+        <!-- Modal Header -->
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-brand text-white flex items-center justify-center shadow-brand">
+              <Sparkles class="w-4 h-4 text-amber-300" />
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Simular Novo Cliente (IA Test)</h3>
+              <p class="text-xs text-slate-400">Envie uma mensagem simulada para testar o atendimento da Sofia</p>
+            </div>
+          </div>
+          <button @click="isSimulateModalOpen = false" class="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+
+        <!-- Modal Form -->
+        <div class="space-y-3.5 text-xs">
+          <!-- Quick client preset buttons -->
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1.5">Perfis Prontos para Teste</label>
+            <div class="flex flex-wrap gap-2">
+              <button 
+                v-for="(p, pIdx) in clientPresets" 
+                :key="pIdx"
+                type="button"
+                @click="selectClientPreset(p)"
+                class="px-2.5 py-1.5 rounded-xl border text-[11px] transition flex items-center gap-1.5"
+                :class="simulateForm.clientPhone === p.phone 
+                  ? 'border-brand bg-brand/10 text-brand font-bold' 
+                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'"
+              >
+                <span>👤 {{ p.name }}</span>
+                <span class="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-semibold">{{ p.tag }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Client Name & Phone -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-500 mb-1">Nome do Cliente</label>
+              <input 
+                v-model="simulateForm.clientName"
+                type="text" 
+                placeholder="Ex: Arthur Silveira" 
+                class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs focus:ring-1 focus:ring-brand font-medium"
+              >
+            </div>
+            <div>
+              <label class="block text-[11px] font-bold text-slate-500 mb-1">Telefone WhatsApp</label>
+              <input 
+                v-model="simulateForm.clientPhone"
+                type="text" 
+                placeholder="+55 (11) 98765-4321" 
+                class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs focus:ring-1 focus:ring-brand font-mono"
+              >
+            </div>
+          </div>
+
+          <!-- Quick Message Chips -->
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1.5">Mensagens Prontas de Exemplo</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button 
+                v-for="(msgOption, mIdx) in quickSimMessages" 
+                :key="mIdx"
+                type="button"
+                @click="selectMessagePreset(msgOption)"
+                class="px-2.5 py-1 rounded-lg text-[10px] font-medium transition text-left"
+                :class="simulateForm.message === msgOption 
+                  ? 'bg-brand text-white shadow-xs' 
+                  : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300'"
+              >
+                "{{ msgOption }}"
+              </button>
+            </div>
+          </div>
+
+          <!-- Message Textarea -->
+          <div>
+            <label class="block text-[11px] font-bold text-slate-500 mb-1">Mensagem Inicial do Cliente</label>
+            <textarea 
+              v-model="simulateForm.message"
+              rows="3" 
+              placeholder="Digite o que o cliente enviará no WhatsApp..."
+              class="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 font-sans focus:ring-1 focus:ring-brand leading-relaxed"
+            ></textarea>
+          </div>
+
+          <!-- AI Info Callout -->
+          <div class="p-3 bg-brand/5 dark:bg-brand/10 border border-brand/20 rounded-xl text-[11px] text-slate-600 dark:text-slate-300 flex items-start gap-2">
+            <Bot class="w-4 h-4 text-brand shrink-0 mt-0.5" />
+            <span>Ao clicar em enviar, a mensagem baterá no endpoint <code class="font-mono text-brand font-bold">/api/whatsapp/simulate</code> e a Sofia processará via Gemini com consulta aos barbeiros e horários em tempo real.</span>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <button 
+            @click="isSimulateModalOpen = false" 
+            :disabled="isSimulating"
+            class="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold"
+          >
+            Cancelar
+          </button>
+          <button 
+            @click="runSimulation()" 
+            :disabled="isSimulating || !simulateForm.message.trim()"
+            class="px-5 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-brand text-white text-xs font-bold transition hover:opacity-95 shadow-brand flex items-center gap-2 disabled:opacity-50"
+          >
+            <RefreshCw v-if="isSimulating" class="w-3.5 h-3.5 animate-spin" />
+            <Send v-else class="w-3.5 h-3.5" />
+            <span>{{ isSimulating ? 'Sofia está respondendo...' : 'Enviar e Testar IA' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: DOSSIÊ DO CLIENTE NO MOBILE (DRAWER)                    -->
+    <!-- ============================================================== -->
+    <div 
+      v-if="isMobileDossierOpen && activeConversation" 
+      class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-50 animate-fade-in lg:hidden"
+    >
+      <div class="bg-white dark:bg-[#131722] rounded-t-3xl sm:rounded-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 p-5 shadow-2xl space-y-4 max-h-[85vh] overflow-y-auto">
+        <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <User class="w-4 h-4 text-brand" />
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white">Dossiê do Cliente</h3>
+          </div>
+          <button @click="isMobileDossierOpen = false" class="p-1 rounded-lg text-slate-400 hover:text-slate-600 text-sm font-bold">✕</button>
+        </div>
+
+        <!-- Customer info -->
+        <div class="flex flex-col items-center text-center pb-2">
+          <img 
+            :src="activeConversation.avatar" 
+            @error="handleAvatarError($event, activeConversation.customerName)"
+            class="w-14 h-14 rounded-2xl object-cover border-2 border-brand/20 shadow-sm mb-2"
+          >
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">{{ activeConversation.customerName }}</h3>
+          <p class="text-xs text-slate-400">{{ activeConversation.customerPhone }}</p>
+        </div>
+
+        <!-- Customer stats grid -->
+        <div class="grid grid-cols-2 gap-2 text-center">
+          <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Cortes Realizados</span>
+            <span class="text-sm font-extrabold text-slate-900 dark:text-white">{{ activeConversation.customerDetails?.visitsCount ?? 0 }}</span>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Total Gasto</span>
+            <span class="text-sm font-extrabold text-brand">R$ {{ (activeConversation.customerDetails?.totalSpent ?? 0).toFixed(2) }}</span>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Barbeiro Favorito</span>
+            <span class="text-xs font-bold text-slate-900 dark:text-white truncate block">{{ activeConversation.customerDetails?.preferredBarber ?? '-' }}</span>
+          </div>
+          <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Pontualidade</span>
+            <span class="text-xs font-bold text-emerald-600 block">100% Pontual</span>
+          </div>
+        </div>
+
+        <!-- Quick action manual message -->
+        <div class="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+          <button 
+            @click="sendChatMessage('human', 'Fala parceiro, seu agendamento está confirmadíssimo! Já deixei a cerveja gelando.'); isMobileDossierOpen = false;"
+            class="w-full px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold text-left transition flex items-center justify-between"
+          >
+            <span>Enviar Confirmação Manual</span>
+            <CheckCircle2 class="w-3.5 h-3.5 text-emerald-500" />
+          </button>
+          <button 
+            @click="sendChatMessage('human', 'Parceiro, você ganhou 10% OFF no seu próximo corte por ser nosso cliente! Use o cupom VIP10.'); isMobileDossierOpen = false;"
+            class="w-full px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-semibold text-left transition flex items-center justify-between"
+          >
+            <span>Enviar Cupom VIP Cortesia</span>
+            <Gift class="w-3.5 h-3.5 text-brand" />
           </button>
         </div>
       </div>

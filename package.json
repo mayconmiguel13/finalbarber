@@ -12,6 +12,9 @@
     "dev:client": "npm --prefix apps/web-client run dev",
     "build:admin": "npm --prefix apps/web-admin run build",
     "build:api": "npm --prefix apps/api run build",
-    "build:client": "npm --prefix apps/web-client run build"
+    "build:client": "npm --prefix apps/web-client run build",
+    "evolution:up": "docker compose -f docker-compose.evolution.yml up -d",
+    "evolution:down": "docker compose -f docker-compose.evolution.yml down",
+    "evolution:logs": "docker compose -f docker-compose.evolution.yml logs -f evolution"
   }
 }

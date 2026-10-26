@@ -67,7 +67,14 @@ export function getDateLabel(date?: 'today' | 'tomorrow' | string): string {
 const sessions = new Map<string, AiSession>();
 
 // Services Database (Default + DB Fallback)
-export const servicesDb = [
+export interface ServiceItem {
+  id: string;
+  name: string;
+  price: number;
+  duration: number;
+}
+
+export const defaultServicesDb: ServiceItem[] = [
   { id: '1', name: 'Fade Navalhado / Degradê', price: 50.0, duration: 40 },
   { id: '2', name: 'Barboterapia com Toalha Quente', price: 45.0, duration: 30 },
   { id: '3', name: 'Combo Completo (Cabelo + Barba)', price: 85.0, duration: 60 },
@@ -75,7 +82,9 @@ export const servicesDb = [
   { id: '5', name: 'Alinhamento & Pigmentação', price: 35.0, duration: 25 },
 ];
 
-// Barbers Database (2 Active Professionals)
+export let servicesDb: ServiceItem[] = [...defaultServicesDb];
+
+// Barbers Database (Default + DB Fallback)
 export interface BarberProfile {
   id: string;
   name: string;
@@ -85,7 +94,7 @@ export interface BarberProfile {
   photo: string;
 }
 
-export const barbersDb: BarberProfile[] = [
+export const defaultBarbersDb: BarberProfile[] = [
   {
     id: '1',
     name: 'Diego Santos',
@@ -103,6 +112,321 @@ export const barbersDb: BarberProfile[] = [
     photo: 'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?auto=format&fit=crop&q=80&w=600',
   },
 ];
+
+export let barbersDb: BarberProfile[] = [...defaultBarbersDb];
+
+/**
+ * Dynamically queries active services from Prisma database with fallback to default services
+ */
+export async function getDynamicServices(): Promise<ServiceItem[]> {
+  try {
+    const rows = await prisma.service.findMany({
+      where: { active: true },
+      orderBy: { price: 'asc' },
+    });
+    if (rows && rows.length > 0) {
+      servicesDb = rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        price: Number(r.price),
+        duration: r.durationMinutes,
+      }));
+      return servicesDb;
+    }
+  } catch (err) {
+    // MySQL offline or empty
+  }
+  servicesDb = [...defaultServicesDb];
+  return servicesDb;
+}
+
+/**
+ * Dynamically queries active barbers from Prisma database with fallback to default barbers
+ */
+export async function getDynamicBarbers(): Promise<BarberProfile[]> {
+  try {
+    const rows = await prisma.barberProfile.findMany({
+      where: { active: true },
+      include: { user: true },
+    });
+    if (rows && rows.length > 0) {
+      barbersDb = rows.map((b, idx) => ({
+        id: b.id,
+        name: b.user?.name || `Barbeiro ${idx + 1}`,
+        nickname: b.nickname || `Cadeira ${idx + 1}`,
+        chair: `Cadeira ${idx + 1}`,
+        specialties: b.bio || 'Especialista em Corte & Barba',
+        photo: b.user?.avatarUrl || defaultBarbersDb[idx % defaultBarbersDb.length].photo,
+      }));
+      return barbersDb;
+    }
+  } catch (err) {
+    // MySQL offline or empty
+  }
+  barbersDb = [...defaultBarbersDb];
+  return barbersDb;
+}
+
+/**
+ * Performs Customer upsert in Prisma and local memory store
+ */
+export async function upsertCustomer(phone: string, name?: string, photo?: string) {
+  const cleanPhone = phone.replace(/\D/g, '') || phone;
+  const customerName = (name && name.trim() && name !== 'Cliente') 
+    ? name.trim() 
+    : `Cliente ${cleanPhone.slice(-4)}`;
+
+  try {
+    let org = await prisma.organization.findFirst();
+    if (!org) {
+      org = await prisma.organization.create({
+        data: {
+          name: 'Atelier 88 Barber Lounge',
+          slug: 'atelier88',
+          phone: '+55 11 98765-4321',
+        },
+      }).catch(() => null);
+    }
+
+    if (org) {
+      await prisma.customer.upsert({
+        where: {
+          orgId_phone: {
+            orgId: org.id,
+            phone: cleanPhone,
+          },
+        },
+        update: {
+          name: (name && name !== 'Cliente') ? name : undefined,
+        },
+        create: {
+          orgId: org.id,
+          phone: cleanPhone,
+          name: customerName,
+        },
+      });
+    }
+  } catch (err) {
+    // Fallback if MySQL is offline
+  }
+}
+
+/**
+ * Confirms appointment in Prisma with status CONFIRMED and creates Transaction with Lei do Salão-Parceiro split
+ */
+export async function confirmarAgendamentoNoBanco(params: {
+  customerPhone: string;
+  customerName?: string;
+  serviceIdOrName: string;
+  barberIdOrName: string;
+  time: string;
+  date: 'today' | 'tomorrow' | string;
+  paymentMethod: 'PIX' | 'COUNTER' | 'CASH' | 'CREDIT_CARD';
+}) {
+  const cleanPhone = params.customerPhone.replace(/\D/g, '') || params.customerPhone;
+  const cal = getCalendarDate(params.date);
+  const [h, m] = params.time.split(':').map(Number);
+  const startsAt = new Date(cal.targetDateObj.getFullYear(), cal.targetDateObj.getMonth(), cal.targetDateObj.getDate(), h, m, 0, 0);
+
+  // 1. Refresh dynamic lists
+  const currentServices = await getDynamicServices();
+  const currentBarbers = await getDynamicBarbers();
+
+  // 2. Map service
+  const srv = currentServices.find(
+    (s) => s.id === params.serviceIdOrName || s.name.toLowerCase().includes(params.serviceIdOrName.toLowerCase())
+  ) || currentServices[0];
+
+  // 3. Map barber
+  const brb = currentBarbers.find(
+    (b) => b.id === params.barberIdOrName || b.name.toLowerCase().includes(params.barberIdOrName.toLowerCase())
+  ) || currentBarbers[0];
+
+  const durationMinutes = srv.duration || 45;
+  const endsAt = new Date(startsAt.getTime() + durationMinutes * 60000);
+
+  const isPix = params.paymentMethod === 'PIX';
+  const split = calculateSplit({
+    servicePrice: srv.price,
+    onlineDiscountActive: isPix,
+    onlineDiscountType: 'PERCENTAGE',
+    onlineDiscountValue: 10,
+    barberCommissionRate: 50,
+    platformFee: 1.49,
+    gatewayCost: 0.99,
+  });
+
+  const pixCode = isPix ? makePix(split.finalPrice) : null;
+  const paymentMethodLabel = isPix 
+    ? `Pix 10% OFF (R$ ${split.finalPrice.toFixed(2)})` 
+    : `No balcão (R$ ${srv.price.toFixed(2)})`;
+
+  // 4. Update in-memory / local slots store
+  const existingSlot = bookedSlotsStore.find(
+    (b) => b.barberId === brb.id && b.time === params.time && (b.dateStr === cal.isoDate || b.date === cal.target)
+  );
+
+  if (!existingSlot) {
+    bookedSlotsStore.push({
+      barberId: brb.id,
+      time: params.time,
+      date: cal.target,
+      dateStr: cal.isoDate,
+      dateLabel: cal.fullLabel,
+      customerPhone: cleanPhone,
+      serviceName: srv.name,
+      price: split.finalPrice,
+      paymentMethod: paymentMethodLabel,
+    });
+  } else {
+    existingSlot.customerPhone = cleanPhone;
+    existingSlot.serviceName = srv.name;
+    existingSlot.price = split.finalPrice;
+    existingSlot.paymentMethod = paymentMethodLabel;
+  }
+
+  // 5. Persist to Prisma with status CONFIRMED and create Transaction with split
+  try {
+    let org = await prisma.organization.findFirst();
+    if (!org) {
+      org = await prisma.organization.create({
+        data: {
+          name: 'Atelier 88 Barber Lounge',
+          slug: 'atelier88',
+          phone: '+55 11 98765-4321',
+        },
+      });
+    }
+
+    // Upsert Customer
+    let customer = await prisma.customer.findFirst({
+      where: {
+        orgId: org.id,
+        phone: cleanPhone,
+      },
+    });
+
+    if (!customer) {
+      customer = await prisma.customer.create({
+        data: {
+          orgId: org.id,
+          phone: cleanPhone,
+          name: params.customerName || `Cliente ${cleanPhone.slice(-4)}`,
+        },
+      });
+    }
+
+    // Resolve real Service ID in Prisma
+    let realService = await prisma.service.findFirst({
+      where: {
+        orgId: org.id,
+        OR: [
+          { id: srv.id },
+          { name: { contains: srv.name } },
+        ],
+      },
+    });
+
+    if (!realService) {
+      realService = await prisma.service.create({
+        data: {
+          orgId: org.id,
+          name: srv.name,
+          price: srv.price,
+          durationMinutes: srv.duration,
+        },
+      });
+    }
+
+    // Resolve real BarberProfile ID in Prisma
+    let realBarber = await prisma.barberProfile.findFirst({
+      where: {
+        orgId: org.id,
+        OR: [
+          { id: brb.id },
+          { nickname: { contains: brb.nickname } },
+          { user: { name: { contains: brb.name } } },
+        ],
+      },
+      include: { user: true },
+    });
+
+    if (!realBarber) {
+      let user = await prisma.user.findFirst({
+        where: { orgId: org.id, role: 'BARBER' },
+      });
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            orgId: org.id,
+            name: brb.name,
+            email: `barber-${Date.now()}@atelier88.com`,
+            passwordHash: 'hashed_pw',
+            role: 'BARBER',
+          },
+        });
+      }
+      realBarber = await prisma.barberProfile.create({
+        data: {
+          orgId: org.id,
+          userId: user.id,
+          nickname: brb.nickname,
+          commissionRate: 50.0,
+        },
+        include: { user: true },
+      });
+    }
+
+    // Create Appointment with status CONFIRMED
+    const appointment = await prisma.appointment.create({
+      data: {
+        orgId: org.id,
+        barberId: realBarber.id,
+        customerId: customer.id,
+        serviceId: realService.id,
+        startsAt,
+        endsAt,
+        status: 'CONFIRMED',
+        origin: 'WHATSAPP_AI',
+        originalPrice: split.originalPrice,
+        discountAmount: split.discountAmount,
+        finalPrice: split.finalPrice,
+        notes: `Agendado via IA WhatsApp Sofia. Forma de pagamento: ${paymentMethodLabel}`,
+      },
+    });
+
+    // Create Transaction with Lei do Salão-Parceiro split
+    await prisma.transaction.create({
+      data: {
+        orgId: org.id,
+        appointmentId: appointment.id,
+        paymentMethod: isPix ? 'PIX' : 'CASH',
+        status: 'PENDING',
+        grossAmount: split.finalPrice,
+        salonShare: split.salonShare,
+        barberShare: split.barberShare,
+        platformFee: split.platformFee,
+        gatewayFee: split.gatewayFee,
+        pixCopiaCola: pixCode,
+      },
+    });
+
+    console.log(`[aiAgent] Appointment ${appointment.id} CONFIRMED & Transaction created with split (Salon: R$ ${split.salonShare}, Barber: R$ ${split.barberShare})`);
+  } catch (err) {
+    console.warn('[aiAgent] Prisma appointment/transaction creation offline/skipped:', err);
+  }
+
+  return {
+    success: true,
+    split,
+    pixCopiaCola: pixCode,
+    startsAt,
+    endsAt,
+    serviceName: srv.name,
+    barberName: brb.name,
+    calendarDate: cal.fullLabel,
+  };
+}
 
 // -------------------------------------------------------------
 // REAL DATABASE VALIDATION & BOOKED SLOTS TRACKER
@@ -149,7 +473,7 @@ export async function getRealAvailableSlots(barberId: string, date: 'today' | 't
     const appointments = await prisma.appointment.findMany({
       where: {
         barberId,
-        status: { in: ['CONFIRMED', 'PENDING'] },
+        status: { in: ['CONFIRMED', 'PENDING_PAYMENT'] },
         startsAt: {
           gte: startOfDay,
           lte: endOfDay,
@@ -231,7 +555,9 @@ export async function lockSlotInDatabase(
           serviceId: '1',
           startsAt,
           endsAt,
-          status: 'PENDING',
+          status: 'PENDING_PAYMENT',
+          originalPrice: 50.0,
+          finalPrice: 45.0,
         },
       });
     }
@@ -404,7 +730,7 @@ REGRAS OBRIGATÓRIAS DE ATENDIMENTO:
 9. Se o cliente escolher a forma de pagamento (Pix ou Balcão), execute a ferramenta 'escolher_forma_pagamento'.
 10. Fale sempre em português do Brasil de forma simpática, moderna, acolhedora e concisa.`;
 
-    const modelsToTry = ['gemini-flash-lite-latest', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-1.5-flash'];
+    const modelsToTry = ['gemini-3.8-flash', 'gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-flash-latest'];
     let candidate: any = null;
 
     for (const model of modelsToTry) {
@@ -412,7 +738,7 @@ REGRAS OBRIGATÓRIAS DE ATENDIMENTO:
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(3500),
+          signal: AbortSignal.timeout(8000),
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: systemPrompt }] },
             contents: [
@@ -648,6 +974,17 @@ REGRAS OBRIGATÓRIAS DE ATENDIMENTO:
             apt.paymentMethod = `Pix 10% OFF (R$ ${split.finalPrice.toFixed(2)})`;
           }
           const pixCode = makePix(split.finalPrice);
+
+          await confirmarAgendamentoNoBanco({
+            customerPhone: session.clientPhone,
+            customerName: session.clientName,
+            serviceIdOrName: session.selectedServiceId || srv.id,
+            barberIdOrName: session.selectedBarberId || brb.id,
+            time: session.selectedTime || '15:00',
+            date: curDate,
+            paymentMethod: 'PIX',
+          });
+
           return {
             handled: true,
             actionTaken: 'PIX_CHOSEN',
@@ -662,6 +999,17 @@ REGRAS OBRIGATÓRIAS DE ATENDIMENTO:
           if (apt) {
             apt.paymentMethod = `No balcão (R$ ${srv.price.toFixed(2)})`;
           }
+
+          await confirmarAgendamentoNoBanco({
+            customerPhone: session.clientPhone,
+            customerName: session.clientName,
+            serviceIdOrName: session.selectedServiceId || srv.id,
+            barberIdOrName: session.selectedBarberId || brb.id,
+            time: session.selectedTime || '16:00',
+            date: curDate,
+            paymentMethod: 'COUNTER',
+          });
+
           return {
             handled: true,
             actionTaken: 'COUNTER_PAYMENT',
@@ -698,6 +1046,12 @@ export async function processWhatsAppMessage(clientPhone: string, messageText: s
 }> {
   // Normalize phone key
   const cleanPhone = clientPhone.replace(/\D/g, '') || clientPhone;
+
+  // Real database customer upsert
+  await upsertCustomer(cleanPhone, clientName);
+
+  // Refresh dynamic services and barbers from Prisma database
+  await Promise.allSettled([getDynamicServices(), getDynamicBarbers()]);
 
   // Helper to present the 2 barbers with photos
   const getBarbersPresentation = () => {
@@ -1355,6 +1709,17 @@ export async function processWhatsAppMessage(clientPhone: string, messageText: s
         apt.paymentMethod = `Pix 10% OFF (R$ ${split.finalPrice.toFixed(2)})`;
       }
       actionTaken = 'PIX_CHOSEN';
+
+      await confirmarAgendamentoNoBanco({
+        customerPhone: cleanPhone,
+        customerName: session.clientName,
+        serviceIdOrName: session.selectedServiceId || srv.id,
+        barberIdOrName: session.selectedBarberId || brb.id,
+        time: session.selectedTime || '15:00',
+        date: curDate,
+        paymentMethod: 'PIX',
+      });
+
       reply = `⚡ *Excelente escolha! Você economizou R$ ${(srv.price * 0.1).toFixed(2)}!*\n\n` +
         `Segue o seu código Pix Copia-e-Cola no valor de *R$ ${split.finalPrice.toFixed(2)}*:\n\n` +
         `\`${pixCopiaCola}\`\n\n` +
@@ -1367,6 +1732,17 @@ export async function processWhatsAppMessage(clientPhone: string, messageText: s
         apt.paymentMethod = `No balcão (R$ ${srv.price.toFixed(2)})`;
       }
       actionTaken = 'COUNTER_PAYMENT';
+
+      await confirmarAgendamentoNoBanco({
+        customerPhone: cleanPhone,
+        customerName: session.clientName,
+        serviceIdOrName: session.selectedServiceId || srv.id,
+        barberIdOrName: session.selectedBarberId || brb.id,
+        time: session.selectedTime || '16:00',
+        date: curDate,
+        paymentMethod: 'COUNTER',
+      });
+
       reply = `Confirmado com sucesso! 👍\n\n` +
         `Sua cadeira para *${srv.name}* com *${brb.name}* está reservada para ${dateLabel} às *${session.selectedTime || '16:00'}*.\n\n` +
         `O pagamento de *R$ ${srv.price.toFixed(2)}* será realizado diretamente na recepção no momento do corte.\n` +

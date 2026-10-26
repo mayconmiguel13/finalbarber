@@ -10,6 +10,13 @@ export async function whatsappRoutes(app: FastifyInstance) {
   app.post('/webhooks/whatsapp', async (request, reply) => {
     const body: any = request.body;
 
+    // Security check: validate webhook secret in production
+    const webhookSecret = process.env.WEBHOOK_SECRET;
+    const providedSecret = request.headers['x-webhook-secret'] || (request.query as any)?.secret || request.headers['apikey'];
+    if (webhookSecret && process.env.NODE_ENV === 'production' && providedSecret !== webhookSecret) {
+      return reply.status(401).send({ error: 'Assinatura inválida no Webhook' });
+    }
+
     // Check Evolution API connection event
     if (body?.event === 'CONNECTION_UPDATE') {
       const state = body?.data?.state; // 'open', 'close', 'connecting'

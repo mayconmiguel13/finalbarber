@@ -1,0 +1,50 @@
+{
+  "name": "BarblyClub - Gestão de Barbearias",
+  "short_name": "Barbly",
+  "description": "App oficial de gestão para donos e barbeiros parceiros BarblyClub",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07090e",
+  "theme_color": "#07090e",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/emblem-barblyclub.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/emblem-barblyclub.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "finance", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Agendamentos de Hoje",
+      "short_name": "Agenda",
+      "description": "Acessar agenda de atendimentos do dia",
+      "url": "/",
+      "icons": [{ "src": "/emblem-barblyclub.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Financeiro & Split Pix",
+      "short_name": "Financeiro",
+      "description": "Consultar faturamento, extrato e repasses",
+      "url": "/financial",
+      "icons": [{ "src": "/emblem-barblyclub.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Clientes & CRM",
+      "short_name": "Clientes",
+      "description": "Ver lista de clientes e contatos",
+      "url": "/clients",
+      "icons": [{ "src": "/emblem-barblyclub.png", "sizes": "192x192" }]
+    }
+  ]
+}
