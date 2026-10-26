@@ -2,6 +2,13 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 
+// Armazenamento em memória do status operacional das cadeiras (Livre / Almoço / Limpeza)
+export const barberOperationalStatusMap = new Map<string, {
+  status: 'AVAILABLE' | 'BREAK' | 'CLEANING';
+  message?: string;
+  updatedAt: Date;
+}>();
+
 export async function barbersRoutes(app: FastifyInstance) {
   // GET /api/barbers - List all barbers of the organization
   app.get('/barbers', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -229,5 +236,42 @@ export async function barbersRoutes(app: FastifyInstance) {
     } catch (err: any) {
       return reply.status(500).send({ error: 'Erro ao desativar profissional.' });
     }
+  });
+
+
+  // POST /api/barbers/:id/status - Atualizar status operacional (Disponível, Pausa/Almoço, Limpeza)
+  app.post('/barbers/:id/status', async (request: FastifyRequest<{
+    Params: { id: string };
+    Body: { status: 'AVAILABLE' | 'BREAK' | 'CLEANING'; message?: string };
+  }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const { id } = request.params;
+    const { status, message } = request.body || {};
+
+    if (!['AVAILABLE', 'BREAK', 'CLEANING'].includes(status)) {
+      return reply.status(400).send({ error: 'Status operacional inválido. Use AVAILABLE, BREAK ou CLEANING.' });
+    }
+
+    let defaultMsg = 'Disponível';
+    if (status === 'BREAK') defaultMsg = message || 'Em Almoço / Pausa';
+    if (status === 'CLEANING') defaultMsg = message || 'Limpeza de Bancada';
+
+    barberOperationalStatusMap.set(id, {
+      status,
+      message: defaultMsg,
+      updatedAt: new Date(),
+    });
+
+    return {
+      success: true,
+      barberId: id,
+      status,
+      message: defaultMsg,
+    };
   });
 }

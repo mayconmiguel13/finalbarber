@@ -55,6 +55,16 @@ export interface DashboardMetrics {
     averageTicket: number;
     onlinePixPercentage: number;
   };
+  week?: {
+    totalRevenue: number;
+    servicesRevenue: number;
+    productsRevenue: number;
+    salonNetShare: number;
+    barberShare: number;
+    totalAppointments: number;
+    completedAppointments: number;
+    averageTicket: number;
+  };
   month?: {
     totalRevenue: number;
     servicesRevenue: number;
@@ -71,7 +81,8 @@ export interface DashboardMetrics {
     avatarUrl: string;
     chair: string;
     commissionRate: number;
-    status: 'OCCUPIED' | 'AVAILABLE';
+    status: 'OCCUPIED' | 'AVAILABLE' | 'BREAK' | 'CLEANING';
+    statusLabel?: string;
     currentAppointment: {
       id: string;
       clientName: string;
@@ -192,6 +203,7 @@ export interface CreateAppointmentPayload {
   origin?: 'WHATSAPP_AI' | 'PWA_WEB' | 'COUNTER_WALKIN';
   status?: 'PENDING_PAYMENT' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
   paymentMethod?: string;
+  forceOverlap?: boolean;
 }
 
 export interface Barber {
@@ -275,6 +287,46 @@ export interface Customer360Response {
     paymentMethod: string;
     createdAt: string;
   }>;
+}
+
+export interface TvAd {
+  id: string;
+  orgId?: string;
+  title: string;
+  subtitle?: string | null;
+  category: string;
+  mediaType?: 'IMAGE' | 'VIDEO' | string;
+  imageUrl: string;
+  videoUrl?: string | null;
+  targetUrl?: string | null;
+  qrCodeLabel?: string | null;
+  priceTag?: string | null;
+  partnerMonthlyFee?: number | null;
+  displayDuration: number;
+  active: boolean;
+  expiresAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+
+export interface TvSettings {
+  barblyAdsNetworkEnabled: boolean;
+  tvFooterText: string;
+  tvWhatsAppContact: string;
+  defaultDuration: number;
+}
+
+export interface TvAdsResponse {
+  ads: TvAd[];
+  totalMonthlyRevenue?: number;
+  activeCount?: number;
+  metrics?: {
+    totalAds: number;
+    activeCount: number;
+    partnerAdsCount: number;
+    totalMonthlyRevenue: number;
+  };
 }
 
 export interface Service {
@@ -377,6 +429,7 @@ export interface ProductSalePayload {
   customerId?: string;
   quantity: number;
   paymentMethod?: string;
+  forceOverlap?: boolean;
 }
 
 export interface DaySchedule {
@@ -526,6 +579,21 @@ export const api = {
     const res = await fetch('/api/barbers', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Falha ao carregar profissionais');
     return res.json();
+  },
+
+  async setBarberOperationalStatus(
+    barberId: string,
+    status: 'AVAILABLE' | 'BREAK' | 'CLEANING',
+    message?: string
+  ): Promise<{ success: boolean; barberId: string; status: string; message: string }> {
+    const res = await fetch(`/api/barbers/${barberId}/status`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ status, message }),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao alterar status da cadeira');
+    return resData;
   },
 
   async createBarber(data: Partial<Barber>): Promise<{ success: boolean; barber: Barber; message: string }> {
@@ -710,6 +778,7 @@ export const api = {
     description: string;
     amount: number;
     paymentMethod?: string;
+  forceOverlap?: boolean;
     barberId?: string;
     barberCommission?: number;
     dueDate?: string;
@@ -804,4 +873,60 @@ export const api = {
     if (!res.ok) throw new Error(resData.error || 'Falha ao concluir venda');
     return resData;
   },
+  // ================= TV ADS & MÍDIA INDOOR API =================
+  async getTvAds(): Promise<TvAdsResponse> {
+    const res = await fetch('/api/tv-ads', { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Falha ao carregar anúncios da TV');
+    return res.json();
+  },
+
+  async createTvAd(data: Partial<TvAd>): Promise<{ success: boolean; ad: TvAd; message: string }> {
+    const res = await fetch('/api/tv-ads', {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao cadastrar anúncio');
+    return resData;
+  },
+
+  async updateTvAd(id: string, data: Partial<TvAd>): Promise<{ success: boolean; ad: TvAd; message: string }> {
+    const res = await fetch(`/api/tv-ads/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao atualizar anúncio');
+    return resData;
+  },
+
+  async deleteTvAd(id: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`/api/tv-ads/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao remover anúncio');
+    return resData;
+  },
+
+  async getTvSettings(): Promise<TvSettings> {
+    const res = await fetch('/api/tv-ads/settings', { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Falha ao carregar configurações da TV');
+    return res.json();
+  },
+
+  async updateTvSettings(settings: Partial<TvSettings>): Promise<{ success: boolean; settings: TvSettings }> {
+    const res = await fetch('/api/tv-ads/settings', {
+      method: 'PUT',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(settings),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao salvar configurações da TV');
+    return resData;
+  },
+
 };

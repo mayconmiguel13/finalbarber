@@ -2,6 +2,34 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 
+
+async function syncCompletedAppointmentsToFinancial(orgId: string) {
+  try {
+    const completedApts = await prisma.appointment.findMany({
+      where: { orgId, status: 'COMPLETED' },
+      include: { service: true, customer: true, barber: true },
+    });
+
+    for (const apt of completedApts) {
+      const finId = 'fin_apt_' + apt.id;
+      const existing: any[] = await prisma.$queryRawUnsafe('SELECT id FROM financial_entries WHERE id = ?', finId);
+      if (existing.length === 0) {
+        const finalPrice = Number(apt.finalPrice) || 0;
+        const commRate = Number(apt.barber?.commissionRate) || 50;
+        const commAmount = (finalPrice * commRate) / 100;
+        const desc = `Atendimento: ${apt.service?.name || 'Serviço'} (${apt.customer?.name || 'Cliente'})`;
+
+        await prisma.$queryRawUnsafe(`
+          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, 'PIX', 'PAID', ?, ?, ?, ?, NOW())
+        `, finId, orgId, desc, finalPrice, apt.barberId, commAmount, apt.endsAt || apt.startsAt, apt.startsAt);
+      }
+    }
+  } catch (err: any) {
+    console.warn('[syncCompletedAppointments Notice]:', err?.message);
+  }
+}
+
 export async function financialRoutes(app: FastifyInstance) {
   // GET /api/financial/summary - Resumo financeiro e KPI cards
   app.get('/financial/summary', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -15,6 +43,7 @@ export async function financialRoutes(app: FastifyInstance) {
     const orgId = payload.orgId;
 
     try {
+      await syncCompletedAppointmentsToFinancial(orgId);
       const entries: any[] = await prisma.$queryRawUnsafe(`
         SELECT type, category, amount, barberCommission, status
         FROM financial_entries
@@ -35,7 +64,7 @@ export async function financialRoutes(app: FastifyInstance) {
           totalCommissionsGenerated += comm;
         } else if (e.type === 'EXPENSE') {
           totalExpense += val;
-          if (e.category === 'Repasse Barbeiro' && e.status === 'PAID') {
+          if ((e.category === 'Repasse Barbeiro' || e.category === 'Repasse Salão-Parceiro' || e.category === 'Comissão Barbeiro') && e.status === 'PAID') {
             totalCommissionsPaid += val;
           }
         }
@@ -70,6 +99,7 @@ export async function financialRoutes(app: FastifyInstance) {
     const orgId = payload.orgId;
 
     try {
+      await syncCompletedAppointmentsToFinancial(orgId);
       const entries = await prisma.$queryRawUnsafe(`
         SELECT 
           f.id,
@@ -128,8 +158,8 @@ export async function financialRoutes(app: FastifyInstance) {
 
     try {
       await prisma.$queryRawUnsafe(`
-        INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())
       `, id, orgId, data.type, data.category, data.description, data.amount, data.paymentMethod, data.status, data.barberId || null, data.barberCommission || 0);
 
       return {
@@ -170,6 +200,7 @@ export async function financialRoutes(app: FastifyInstance) {
     const orgId = payload.orgId;
 
     try {
+      await syncCompletedAppointmentsToFinancial(orgId);
       const barbers = await prisma.barberProfile.findMany({
         where: { orgId, active: true },
         include: { user: true },
@@ -194,13 +225,14 @@ export async function financialRoutes(app: FastifyInstance) {
           const comm = Number(e.barberCommission) || 0;
 
           if (e.type === 'INCOME') {
-            if (e.category === 'Serviço') {
-              servicesTotal += val;
-            } else if (e.category === 'Venda de Produto') {
+            const cat = (e.category || '').toLowerCase();
+            if (cat.includes('prod') || cat.includes('bebid') || cat.includes('cerveja')) {
               productsTotal += val;
+            } else {
+              servicesTotal += val;
             }
             totalCommissions += comm;
-          } else if (e.type === 'EXPENSE' && e.category === 'Repasse Barbeiro' && e.status === 'PAID') {
+          } else if (e.type === 'EXPENSE' && (e.category === 'Repasse Barbeiro' || e.category === 'Repasse Salão-Parceiro' || e.category === 'Comissão Barbeiro') && e.status === 'PAID') {
             totalPaid += val;
           }
         }
@@ -273,8 +305,8 @@ export async function financialRoutes(app: FastifyInstance) {
       const desc = `Repasse de Comissões Pix (Lei 13.352) - ${barber.user.name}`;
 
       await prisma.$queryRawUnsafe(`
-        INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission)
-        VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, 'PIX', 'PAID', ?, 0)
+        INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+        VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, 'PIX', 'PAID', ?, 0, NOW(), NOW(), NOW())
       `, id, orgId, desc, amount, barberId);
 
       return {
@@ -564,8 +596,8 @@ export async function financialRoutes(app: FastifyInstance) {
       const entryId = 'fin_prod_' + Date.now();
       const desc = `Venda: ${quantity}x ${product.name} (${product.category})`;
       await prisma.$queryRawUnsafe(`
-        INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission)
-        VALUES (?, ?, 'INCOME', 'Venda de Produto', ?, ?, ?, 'PAID', ?, ?)
+        INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+        VALUES (?, ?, 'INCOME', 'Venda de Produto', ?, ?, ?, 'PAID', ?, ?, NOW(), NOW(), NOW())
       `, entryId, orgId, desc, totalAmount, paymentMethod, barberId || null, commissionAmount);
 
       return {

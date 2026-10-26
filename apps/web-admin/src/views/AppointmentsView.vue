@@ -9,6 +9,7 @@ import {
   CheckCircle2, 
   MessageCircle, 
   User, 
+  Users, 
   Scissors, 
   DollarSign, 
   Check, 
@@ -18,7 +19,8 @@ import {
   Trash2, 
   Play, 
   RefreshCw, 
-  LayoutGrid, 
+  LayoutGrid,
+  Columns3,
   List, 
   CalendarDays,
   Beer,
@@ -31,7 +33,11 @@ import {
   Info,
   RotateCcw,
   UserCheck,
-  Receipt
+  Receipt,
+  Printer,
+  Tag,
+  AlertCircle,
+  Send
 } from 'lucide-vue-next';
 
 // FullCalendar imports
@@ -159,6 +165,176 @@ async function loadAppointments() {
   }
 }
 
+
+// ================= BARBER SIGNATURE PALETTES & CALENDAR LAYOUT =================
+const calendarLayoutMode = ref<'MULTI_COLUMNS' | 'SINGLE_TIMELINE'>('MULTI_COLUMNS');
+const activeStatusFilter = ref<'ALL' | 'IN_PROGRESS' | 'CONFIRMED' | 'DELAYED' | 'COMPLETED'>('ALL');
+const barberScheduleView = ref<'DAY' | 'WEEK'>('DAY');
+
+const BARBER_PALETTES = [
+  {
+    name: 'Violet',
+    border: '#8b5cf6',
+    lightBg: 'bg-purple-50/95 border-purple-200/90 text-purple-950 shadow-sm shadow-purple-500/10',
+    darkBg: 'dark:bg-purple-950/70 dark:border-purple-500/40 dark:text-purple-100',
+    tag: 'bg-purple-100 text-purple-800 dark:bg-purple-500/25 dark:text-purple-300',
+    dot: 'bg-purple-500',
+    text: 'text-purple-700 dark:text-purple-300',
+  },
+  {
+    name: 'Emerald',
+    border: '#10b981',
+    lightBg: 'bg-emerald-50/95 border-emerald-200/90 text-emerald-950 shadow-sm shadow-emerald-500/10',
+    darkBg: 'dark:bg-emerald-950/60 dark:border-emerald-500/35 dark:text-emerald-100',
+    tag: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/25 dark:text-emerald-300',
+    dot: 'bg-emerald-500',
+    text: 'text-emerald-700 dark:text-emerald-300',
+  },
+  {
+    name: 'Amber',
+    border: '#f59e0b',
+    lightBg: 'bg-amber-50/95 border-amber-200/90 text-amber-950 shadow-sm shadow-amber-500/10',
+    darkBg: 'dark:bg-amber-950/65 dark:border-amber-500/35 dark:text-amber-100',
+    tag: 'bg-amber-100 text-amber-800 dark:bg-amber-500/25 dark:text-amber-300',
+    dot: 'bg-amber-500',
+    text: 'text-amber-700 dark:text-amber-300',
+  },
+  {
+    name: 'Sky',
+    border: '#0284c7',
+    lightBg: 'bg-sky-50/95 border-sky-200/90 text-sky-950 shadow-sm shadow-sky-500/10',
+    darkBg: 'dark:bg-sky-950/70 dark:border-sky-500/40 dark:text-sky-100',
+    tag: 'bg-sky-100 text-sky-800 dark:bg-sky-500/25 dark:text-sky-300',
+    dot: 'bg-sky-500',
+    text: 'text-sky-700 dark:text-sky-300',
+  },
+  {
+    name: 'Rose',
+    border: '#f43f5e',
+    lightBg: 'bg-rose-50/95 border-rose-200/90 text-rose-950 shadow-sm shadow-rose-500/10',
+    darkBg: 'dark:bg-rose-950/70 dark:border-rose-500/40 dark:text-rose-100',
+    tag: 'bg-rose-100 text-rose-800 dark:bg-rose-500/25 dark:text-rose-300',
+    dot: 'bg-rose-500',
+    text: 'text-rose-700 dark:text-rose-300',
+  },
+  {
+    name: 'Indigo',
+    border: '#6366f1',
+    lightBg: 'bg-indigo-50/95 border-indigo-200/90 text-indigo-950 shadow-sm shadow-indigo-500/10',
+    darkBg: 'dark:bg-indigo-950/70 dark:border-indigo-500/40 dark:text-indigo-100',
+    tag: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/25 dark:text-indigo-300',
+    dot: 'bg-indigo-500',
+    text: 'text-indigo-700 dark:text-indigo-300',
+  },
+  {
+    name: 'Teal',
+    border: '#0d9488',
+    lightBg: 'bg-teal-50/95 border-teal-200/90 text-teal-950 shadow-sm shadow-teal-500/10',
+    darkBg: 'dark:bg-teal-950/70 dark:border-teal-500/40 dark:text-teal-100',
+    tag: 'bg-teal-100 text-teal-800 dark:bg-teal-500/25 dark:text-teal-300',
+    dot: 'bg-teal-500',
+    text: 'text-teal-700 dark:text-teal-300',
+  },
+];
+
+function getBarberPalette(barberId?: string) {
+  if (!barberId) return BARBER_PALETTES[0];
+  const charSum = barberId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return BARBER_PALETTES[charSum % BARBER_PALETTES.length];
+}
+
+function setCalendarLayout(mode: 'MULTI_COLUMNS' | 'SINGLE_TIMELINE') {
+  playPopSound();
+  calendarLayoutMode.value = mode;
+  const cal = fullCalendarRef.value?.getApi();
+  if (cal) {
+    if (mode === 'SINGLE_TIMELINE' || selectedBarberId.value !== 'ALL') {
+      cal.changeView(barberScheduleView.value === 'WEEK' && selectedBarberId.value !== 'ALL' ? 'timeGridWeek' : 'timeGridDay');
+    } else {
+      cal.changeView('resourceTimeGridDay');
+    }
+  }
+}
+
+function selectBarber(barberId: string) {
+  playPopSound();
+  selectedBarberId.value = barberId;
+  loadAppointments();
+
+  const cal = fullCalendarRef.value?.getApi();
+  if (cal) {
+    if (barberId !== 'ALL') {
+      cal.changeView(barberScheduleView.value === 'WEEK' ? 'timeGridWeek' : 'timeGridDay');
+    } else {
+      if (calendarLayoutMode.value === 'SINGLE_TIMELINE') {
+        cal.changeView('timeGridDay');
+      } else {
+        cal.changeView('resourceTimeGridDay');
+      }
+    }
+  }
+}
+
+function toggleBarberScheduleView(mode: 'DAY' | 'WEEK') {
+  playPopSound();
+  barberScheduleView.value = mode;
+  const cal = fullCalendarRef.value?.getApi();
+  if (cal) {
+    if (mode === 'WEEK') {
+      cal.changeView('timeGridWeek');
+    } else {
+      if (selectedBarberId.value === 'ALL' && calendarLayoutMode.value === 'MULTI_COLUMNS') {
+        cal.changeView('resourceTimeGridDay');
+      } else {
+        cal.changeView('timeGridDay');
+      }
+    }
+  }
+}
+
+function getDelayMinutes(apt?: any): number {
+  if (!apt || apt.status !== 'CONFIRMED') return 0;
+  try {
+    const start = new Date(apt.startsAt).getTime();
+    const now = Date.now();
+    if (now > start) {
+      const diffMin = Math.floor((now - start) / 60000);
+      return diffMin >= 5 ? diffMin : 0;
+    }
+  } catch {}
+  return 0;
+}
+
+function getLateWhatsAppUrl(apt: Appointment): string {
+  const cleanPhone = apt.customer?.phone ? apt.customer.phone.replace(/\D/g, '') : '';
+  const validPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+  const text = encodeURIComponent(
+    `Olá ${apt.customer?.name}! Tudo bem? Seu horário de *${apt.service?.name}* com *${apt.barber?.name}* estava agendado para às *${apt.time}*. Você já está a caminho da barbearia? 💈✂️`
+  );
+  return `https://wa.me/${validPhone}?text=${text}`;
+}
+
+const statusCounts = computed(() => {
+  return {
+    all: appointments.value.length,
+    inProgress: appointments.value.filter(a => a.status === 'IN_PROGRESS').length,
+    confirmed: appointments.value.filter(a => a.status === 'CONFIRMED' && getDelayMinutes(a) === 0).length,
+    delayed: appointments.value.filter(a => a.status === 'CONFIRMED' && getDelayMinutes(a) > 0).length,
+    completed: appointments.value.filter(a => a.status === 'COMPLETED').length,
+  };
+});
+
+const filteredAppointments = computed(() => {
+  return appointments.value.filter(apt => {
+    if (activeStatusFilter.value === 'ALL') return true;
+    if (activeStatusFilter.value === 'IN_PROGRESS') return apt.status === 'IN_PROGRESS';
+    if (activeStatusFilter.value === 'CONFIRMED') return apt.status === 'CONFIRMED' && getDelayMinutes(apt) === 0;
+    if (activeStatusFilter.value === 'DELAYED') return apt.status === 'CONFIRMED' && getDelayMinutes(apt) > 0;
+    if (activeStatusFilter.value === 'COMPLETED') return apt.status === 'COMPLETED';
+    return true;
+  });
+});
+
 // Active barbers to display as columns in FullCalendar
 const activeBarbers = computed(() => {
   if (selectedBarberId.value !== 'ALL') {
@@ -274,26 +450,10 @@ const calendarResources = computed(() => {
   });
 });
 
-// FullCalendar Events mapped from MySQL Appointments
+// FullCalendar Events mapped from MySQL Appointments (Color-coded by Barber)
 const calendarEvents = computed(() => {
-  return appointments.value.map(apt => {
-    let bgColor = '#f59e0b'; // Amber default for confirmed
-    let borderColor = '#d97706';
-    let textColor = '#ffffff';
-
-    if (apt.status === 'COMPLETED') {
-      bgColor = '#10b981'; // Emerald
-      borderColor = '#059669';
-    } else if (apt.status === 'IN_PROGRESS') {
-      bgColor = '#3b82f6'; // Blue
-      borderColor = '#2563eb';
-    } else if (apt.status === 'PENDING_PAYMENT') {
-      bgColor = '#f97316'; // Orange
-      borderColor = '#ea580c';
-    } else if (apt.status === 'CANCELLED' || apt.status === 'NO_SHOW') {
-      bgColor = '#64748b'; // Slate
-      borderColor = '#475569';
-    }
+  return filteredAppointments.value.map(apt => {
+    const palette = getBarberPalette(apt.barber?.id);
 
     return {
       id: apt.id,
@@ -301,11 +461,12 @@ const calendarEvents = computed(() => {
       title: `${apt.customer?.name} - ${apt.service?.name}`,
       start: apt.startsAt,
       end: apt.endsAt,
-      backgroundColor: bgColor,
-      borderColor: borderColor,
-      textColor: textColor,
+      backgroundColor: palette.border,
+      borderColor: palette.border,
+      textColor: '#ffffff',
       extendedProps: {
         appointment: apt,
+        barberPalette: palette,
       }
     };
   });
@@ -428,10 +589,14 @@ function getBarberDayAppointmentsCount(barberId: string): number {
 
 // FullCalendar Options Configuration
 const calendarOptions = computed<any>(() => {
+  const currentView = (calendarLayoutMode.value === 'SINGLE_TIMELINE' || selectedBarberId.value !== 'ALL')
+    ? (barberScheduleView.value === 'WEEK' && selectedBarberId.value !== 'ALL' ? 'timeGridWeek' : 'timeGridDay')
+    : 'resourceTimeGridDay';
+
   return {
     schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source',
     plugins: [resourceTimeGridPlugin, timeGridPlugin, dayGridPlugin, interactionPlugin],
-    initialView: 'resourceTimeGridDay',
+    initialView: currentView,
     initialDate: selectedDate.value,
     locale: ptBrLocale,
     headerToolbar: false, // We control through our custom header
@@ -450,7 +615,7 @@ const calendarOptions = computed<any>(() => {
       minute: '2-digit',
       hour12: false
     },
-    eventMinHeight: 44,
+    eventMinHeight: 46,
     allDaySlot: false,
     height: 'auto',
     expandRows: true,
@@ -820,6 +985,77 @@ async function handleDeleteFromDetails() {
 
 // ================= MODAL: FINALIZAR ATENDIMENTO & CHECKOUT COM PRODUTOS =================
 const isCheckoutModalOpen = ref(false);
+const checkoutDiscount = ref(0);
+const cashGivenAmount = ref<number | null>(null);
+const completedReceiptData = ref<any>(null);
+const isReceiptModalOpen = ref(false);
+
+function printThermalReceipt(data: any) {
+  const w = window.open('', '_blank', 'width=380,height=600');
+  if (!w) return;
+  const itemsHtml = (data.items || []).map((i: any) => 
+    `<tr><td>${i.quantity}x ${i.product.name}</td><td style="text-align:right">R$ ${(Number(i.product.salePrice) * i.quantity).toFixed(2)}</td></tr>`
+  ).join('');
+
+  w.document.write(`
+    <html>
+      <head>
+        <title>Recibo - BarblyClub</title>
+        <style>
+          body { font-family: monospace; font-size: 12px; margin: 15px; color: #000; }
+          .center { text-align: center; }
+          .bold { font-weight: bold; }
+          .divider { border-bottom: 1px dashed #000; margin: 8px 0; }
+          table { width: 100%; font-size: 12px; }
+          @media print { button { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="center bold" style="font-size: 15px;">BARBLYCLUB</div>
+        <div class="center">COMPROVANTE DE ATENDIMENTO</div>
+        <div class="center" style="font-size: 10px;">${new Date().toLocaleString('pt-BR')}</div>
+        <div class="divider"></div>
+        <div><b>Cliente:</b> ${data.customerName}</div>
+        <div><b>Profissional:</b> ${data.barberName} (${data.chair})</div>
+        <div><b>Horário:</b> ${data.time || ''}</div>
+        <div class="divider"></div>
+        <table>
+          <tr><td>1x ${data.serviceName}</td><td style="text-align:right">R$ ${Number(data.serviceOriginalPrice).toFixed(2)}</td></tr>
+          ${data.discount > 0 ? `<tr><td style="color:red">- Desconto Cortesia</td><td style="text-align:right; color:red">-R$ ${Number(data.discount).toFixed(2)}</td></tr>` : ''}
+          ${itemsHtml}
+        </table>
+        <div class="divider"></div>
+        <div style="display:flex; justify-content:space-between;" class="bold">
+          <span>TOTAL PAGO:</span>
+          <span>R$ ${Number(data.totalGross).toFixed(2)}</span>
+        </div>
+        <div><b>Forma de Pagamento:</b> ${data.paymentMethod}</div>
+        ${data.cashChange > 0 ? `<div><b>Troco Devolvido:</b> R$ ${Number(data.cashChange).toFixed(2)}</div>` : ''}
+        <div class="divider"></div>
+        <div class="center" style="font-size: 10px; margin-top: 10px;">Obrigado pela preferência!<br/>Volte sempre! 💈</div>
+        <div style="text-align:center; margin-top:15px;">
+          <button onclick="window.print()" style="padding: 6px 14px; cursor: pointer; font-weight:bold; background:#000; color:#fff; border-radius:6px;">🖨️ Imprimir Recibo</button>
+        </div>
+      </body>
+    </html>
+  `);
+  w.document.close();
+}
+
+function sendReceiptWhatsApp(data: any) {
+  const cleanPhone = data.phone ? data.phone.replace(/\D/g, '') : '';
+  const validPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+  const text = encodeURIComponent(
+    `Olá ${data.customerName}! ✂️💈\nSeu atendimento na *BarblyClub* foi concluído com sucesso!\n\n` +
+    `• Serviço: *${data.serviceName}*\n` +
+    `• Barbeiro: *${data.barberName}*\n` +
+    (data.discount > 0 ? `• Desconto: *-R$ ${Number(data.discount).toFixed(2).replace('.', ',')}*\n` : '') +
+    `• Total: *R$ ${Number(data.totalGross).toFixed(2).replace('.', ',')}* (${data.paymentMethod})\n\n` +
+    `Muito obrigado pela confiança! Até a próxima visita. ⭐`
+  );
+  window.open(`https://wa.me/${validPhone}?text=${text}`, '_blank');
+}
+
 const selectedAptForCheckout = ref<Appointment | null>(null);
 const checkoutPaymentMethod = ref('PIX');
 const isSubmittingCheckout = ref(false);
@@ -871,6 +1107,8 @@ function openCheckoutModal(apt: Appointment) {
   playPopSound();
   selectedAptForCheckout.value = apt;
   checkoutPaymentMethod.value = 'PIX';
+  checkoutDiscount.value = 0;
+  cashGivenAmount.value = null;
   consumedProductsList.value = [];
   comandaSearchQuery.value = '';
   comandaActiveCategory.value = 'ALL';
@@ -1182,49 +1420,144 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- ================= BARBER FILTER TABS ================= -->
-    <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-      <button 
-        @click="playPopSound(); selectedBarberId = 'ALL'; loadAppointments();"
-        class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer"
-        :class="selectedBarberId === 'ALL' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white dark:bg-[#121824] text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'"
-      >
-        Todas as Cadeiras ({{ barbers.length }})
-      </button>
+    <!-- ================= BARBER FILTER TABS & STATUS CHIPS ================= -->
+    <div class="space-y-2">
+      <!-- Barber Filter Tabs with Signature Colors -->
+      <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
+        <button 
+          @click="selectBarber('ALL')"
+          class="px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1.5"
+          :class="selectedBarberId === 'ALL' ? 'bg-slate-900 text-white dark:bg-amber-500 dark:text-slate-950 shadow-sm' : 'bg-white dark:bg-[#121824] text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'"
+        >
+          <Users class="w-3.5 h-3.5" />
+          <span>Todas as Cadeiras ({{ barbers.length }})</span>
+        </button>
 
-      <button 
-        v-for="barber in barbers" 
-        :key="barber.id"
-        @click="playPopSound(); selectedBarberId = barber.id; loadAppointments();"
-        class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer"
-        :class="selectedBarberId === barber.id ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white dark:bg-[#121824] text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'"
-      >
-        <img 
-          :src="barber.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50'" 
-          class="w-4 h-4 rounded-full object-cover" 
-        />
-        <span>{{ barber.nickname || barber.name.split(' ')[0] }}</span>
-        <span class="text-[10px] opacity-70">({{ barber.chair || 'Cadeira 1' }})</span>
-      </button>
+        <button 
+          v-for="barber in barbers" 
+          :key="barber.id"
+          @click="selectBarber(barber.id)"
+          class="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer"
+          :class="selectedBarberId === barber.id ? 'bg-slate-900 text-white dark:bg-amber-500 dark:text-slate-950 shadow-sm ring-1 ring-amber-500/50' : 'bg-white dark:bg-[#121824] text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'"
+        >
+          <!-- Barber Signature Color Dot -->
+          <span 
+            class="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
+            :style="{ backgroundColor: getBarberPalette(barber.id).border }"
+          ></span>
+
+          <img 
+            :src="barber.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50'" 
+            class="w-4 h-4 rounded-full object-cover shrink-0" 
+          />
+          <span>{{ barber.nickname || barber.name.split(' ')[0] }}</span>
+          <span class="text-[10px] opacity-70">({{ barber.chair || 'Cadeira' }})</span>
+        </button>
+      </div>
+
+      <!-- Quick Status Filter Ribbon -->
+      <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 text-xs">
+        <button 
+          @click="playPopSound(); activeStatusFilter = 'ALL'"
+          class="px-2.5 py-1 rounded-lg font-bold transition whitespace-nowrap cursor-pointer"
+          :class="activeStatusFilter === 'ALL' ? 'bg-slate-800 text-white dark:bg-white/20 dark:text-white' : 'bg-white dark:bg-[#121824] text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-white/5 hover:text-slate-900'"
+        >
+          Todos
+        </button>
+        <button 
+          @click="playPopSound(); activeStatusFilter = 'IN_PROGRESS'"
+          class="px-2.5 py-1 rounded-lg font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1.5"
+          :class="activeStatusFilter === 'IN_PROGRESS' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-[#121824] text-blue-600 dark:text-blue-400 border border-slate-200/70 dark:border-white/5'"
+        >
+          <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+          Na Cadeira
+        </button>
+        <button 
+          @click="playPopSound(); activeStatusFilter = 'CONFIRMED'"
+          class="px-2.5 py-1 rounded-lg font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1.5"
+          :class="activeStatusFilter === 'CONFIRMED' ? 'bg-amber-600 text-white' : 'bg-white dark:bg-[#121824] text-amber-600 dark:text-amber-400 border border-slate-200/70 dark:border-white/5'"
+        >
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+          Aguardando
+        </button>
+        <button 
+          @click="playPopSound(); activeStatusFilter = 'DELAYED'"
+          class="px-2.5 py-1 rounded-lg font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1.5"
+          :class="activeStatusFilter === 'DELAYED' ? 'bg-rose-600 text-white' : 'bg-white dark:bg-[#121824] text-rose-600 dark:text-rose-400 border border-slate-200/70 dark:border-white/5'"
+        >
+          <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+          Atrasados
+        </button>
+        <button 
+          @click="playPopSound(); activeStatusFilter = 'COMPLETED'"
+          class="px-2.5 py-1 rounded-lg font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1.5"
+          :class="activeStatusFilter === 'COMPLETED' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-[#121824] text-emerald-600 dark:text-emerald-400 border border-slate-200/70 dark:border-white/5'"
+        >
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+          Concluídos
+        </button>
+      </div>
     </div>
 
     <!-- ================= VIEW MODE 1: FULLCALENDAR GRADE INTERATIVA ================= -->
     <div v-if="viewMode === 'FULLCALENDAR'" class="bg-white dark:bg-[#121824] rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm p-4 sm:p-6 overflow-hidden">
       
-      <!-- Subtle Calendar Info & Legend Bar -->
-      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400 pb-3 mb-3 border-b border-slate-100 dark:border-white/5">
-        <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-          <Move class="w-3.5 h-3.5 text-amber-500 shrink-0" />
-          <span>Arraste e solte para reagendar horários • Clique em qualquer horário vazio para um novo agendamento</span>
+      <!-- Calendar Toolbar & Layout Switcher -->
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 mb-3 border-b border-slate-100 dark:border-white/5">
+        
+        <!-- Left: Layout Switcher & Schedule Views -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <!-- Multi-chair vs Single Timeline Switcher -->
+          <div class="flex items-center rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200/80 dark:border-white/10 p-0.5 text-xs">
+            <button 
+              @click="setCalendarLayout('MULTI_COLUMNS')"
+              class="flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold transition cursor-pointer"
+              :class="calendarLayoutMode === 'MULTI_COLUMNS' && selectedBarberId === 'ALL' ? 'bg-white dark:bg-amber-500 text-slate-900 dark:text-slate-950 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+              title="Colunas Lado a Lado por Cadeira"
+            >
+              <Columns3 class="w-3.5 h-3.5" />
+              <span>Multi-Cadeiras</span>
+            </button>
+
+            <button 
+              @click="setCalendarLayout('SINGLE_TIMELINE')"
+              class="flex items-center gap-1.5 px-3 py-1 rounded-lg font-bold transition cursor-pointer"
+              :class="calendarLayoutMode === 'SINGLE_TIMELINE' || selectedBarberId !== 'ALL' ? 'bg-white dark:bg-amber-500 text-slate-900 dark:text-slate-950 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+              title="Linha do Tempo Contínua / Agenda Única"
+            >
+              <Clock class="w-3.5 h-3.5" />
+              <span>Linha do Tempo Única</span>
+            </button>
+          </div>
+
+          <!-- Individual Barber Schedule Toggle (Day vs Week) -->
+          <div v-if="selectedBarberId !== 'ALL'" class="flex items-center rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200/80 dark:border-white/10 p-0.5 text-xs">
+            <button 
+              @click="toggleBarberScheduleView('DAY')"
+              class="px-2.5 py-1 rounded-lg font-bold transition cursor-pointer"
+              :class="barberScheduleView === 'DAY' ? 'bg-white dark:bg-amber-500 text-slate-900 dark:text-slate-950 shadow-sm' : 'text-slate-500 dark:text-slate-400'"
+            >
+              Dia
+            </button>
+            <button 
+              @click="toggleBarberScheduleView('WEEK')"
+              class="px-2.5 py-1 rounded-lg font-bold transition cursor-pointer"
+              :class="barberScheduleView === 'WEEK' ? 'bg-white dark:bg-amber-500 text-slate-900 dark:text-slate-950 shadow-sm' : 'text-slate-500 dark:text-slate-400'"
+            >
+              Semana do Barbeiro
+            </button>
+          </div>
         </div>
+
+        <!-- Right: Status Indicators Legend -->
         <div class="flex items-center gap-3 text-[11px] font-bold">
-          <span class="flex items-center gap-1.5 text-blue-400">
+          <span class="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
             <span class="w-2 h-2 rounded-full bg-blue-500"></span> Na Cadeira
           </span>
-          <span class="flex items-center gap-1.5 text-amber-400">
-            <span class="w-2 h-2 rounded-full bg-amber-500"></span> Confirmado
+          <span class="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+            <span class="w-2 h-2 rounded-full bg-amber-500"></span> Aguardando
           </span>
-          <span class="flex items-center gap-1.5 text-emerald-400">
+          <span class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
             <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Concluído
           </span>
         </div>
@@ -1238,77 +1571,93 @@ onMounted(async () => {
         >
           <!-- Custom Resource Column Header -->
           <template #resourceLabelContent="arg">
-            <div class="flex items-center justify-center gap-2 py-2 px-3 w-full">
+            <div class="flex items-center justify-center gap-2.5 py-2.5 px-3 w-full">
               <img 
                 :src="arg.resource.extendedProps.avatarUrl" 
-                class="w-7 h-7 rounded-full object-cover ring-1 ring-amber-500/50 shadow-sm shrink-0"
+                class="w-7 h-7 rounded-full object-cover ring-2 ring-amber-500/40 shadow-sm shrink-0"
               />
               <div class="text-left truncate">
-                <span class="text-xs font-black text-slate-900 dark:text-white truncate block leading-tight">
+                <span class="text-xs font-black text-slate-800 dark:text-white truncate block leading-tight">
                   {{ arg.resource.title }}
                 </span>
-                <span class="text-[10px] text-amber-500 font-semibold truncate block">
+                <span class="text-[10px] text-amber-600 dark:text-amber-400 font-bold truncate block">
                   {{ arg.resource.extendedProps.chair }}
                 </span>
               </div>
               <span 
                 v-if="!arg.resource.extendedProps.isWorkingOnSelectedDate"
-                class="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-400 font-bold ml-1.5 shrink-0"
+                class="text-[9px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400 font-bold ml-1.5 shrink-0"
               >
                 Folga
               </span>
             </div>
           </template>
 
-          <!-- Custom Event Rendering Template (Minimalist Luxury Card) -->
+          <!-- Custom Event Rendering Template (Color-Coded by Barber + Status Badges) -->
           <template #eventContent="arg">
             <div 
-              class="w-full h-full rounded-xl overflow-hidden cursor-pointer select-none border transition-all duration-150 hover:brightness-110 flex flex-col justify-between"
+              class="w-full h-full rounded-xl overflow-hidden cursor-pointer select-none border transition-all duration-150 hover:shadow-md flex flex-col justify-between"
               :class="[
-                arg.event.extendedProps.appointment?.status === 'IN_PROGRESS'
-                  ? 'bg-blue-950/70 border-blue-500/40 text-blue-100 shadow-sm shadow-blue-500/10'
-                  : arg.event.extendedProps.appointment?.status === 'COMPLETED'
-                  ? 'bg-emerald-950/60 border-emerald-500/35 text-emerald-100 shadow-sm shadow-emerald-500/10'
-                  : arg.event.extendedProps.appointment?.status === 'PENDING_PAYMENT'
-                  ? 'bg-orange-950/65 border-orange-500/40 text-orange-100 shadow-sm shadow-orange-500/10'
-                  : (arg.event.extendedProps.appointment?.status === 'CANCELLED' || arg.event.extendedProps.appointment?.status === 'NO_SHOW')
-                  ? 'bg-slate-900/80 border-slate-700/50 text-slate-400 opacity-60'
-                  : 'bg-amber-950/65 border-amber-500/35 text-amber-100 shadow-sm shadow-amber-500/10'
+                arg.event.extendedProps.appointment?.status === 'CANCELLED' || arg.event.extendedProps.appointment?.status === 'NO_SHOW'
+                  ? 'bg-slate-100/90 border-slate-200 text-slate-400 opacity-60 line-through dark:bg-slate-900/80 dark:border-slate-700/50'
+                  : [
+                      getBarberPalette(arg.event.extendedProps.appointment?.barber?.id).lightBg,
+                      getBarberPalette(arg.event.extendedProps.appointment?.barber?.id).darkBg
+                    ]
               ]"
               :style="{
                 borderLeftWidth: '4px',
-                borderLeftColor: 
-                  arg.event.extendedProps.appointment?.status === 'IN_PROGRESS' ? '#3b82f6' :
-                  arg.event.extendedProps.appointment?.status === 'COMPLETED' ? '#10b981' :
-                  arg.event.extendedProps.appointment?.status === 'PENDING_PAYMENT' ? '#f97316' :
-                  (arg.event.extendedProps.appointment?.status === 'CANCELLED' || arg.event.extendedProps.appointment?.status === 'NO_SHOW') ? '#64748b' :
-                  '#f59e0b'
+                borderLeftColor: getBarberPalette(arg.event.extendedProps.appointment?.barber?.id).border
               }"
             >
               <div class="p-2 flex flex-col justify-between h-full min-w-0">
                 
-                <!-- Top: Horário + Status -->
+                <!-- Top: Horário + Barber Signature Badge + Status Indicator -->
                 <div class="flex items-center justify-between gap-1 leading-none shrink-0">
-                  <span class="font-mono text-[11px] font-bold opacity-90 tracking-tight">
-                    {{ arg.timeText }}
-                  </span>
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="font-mono text-[11px] font-black tracking-tight text-slate-900 dark:text-white shrink-0">
+                      {{ arg.timeText }}
+                    </span>
 
+                    <!-- Barber Badge (Visual Indicator of which professional this appointment belongs to) -->
+                    <div 
+                      class="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black truncate"
+                      :class="getBarberPalette(arg.event.extendedProps.appointment?.barber?.id).tag"
+                      :title="`Profissional: ${arg.event.extendedProps.appointment?.barber?.name}`"
+                    >
+                      <img 
+                        :src="arg.event.extendedProps.appointment?.barber?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50'" 
+                        class="w-3 h-3 rounded-full object-cover shrink-0"
+                      />
+                      <span class="truncate max-w-[70px]">
+                        {{ arg.event.extendedProps.appointment?.barber?.nickname || arg.event.extendedProps.appointment?.barber?.name?.split(' ')[0] }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Operational Status Badges -->
                   <span 
-                    v-if="arg.event.extendedProps.appointment?.status === 'IN_PROGRESS'" 
-                    class="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-blue-400"
+                    v-if="getDelayMinutes(arg.event.extendedProps.appointment) > 0"
+                    class="inline-flex items-center gap-0.5 text-[9px] font-black text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-500/20 px-1 py-0.5 rounded shrink-0"
                   >
-                    <span class="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping"></span>
+                    Atrasado +{{ getDelayMinutes(arg.event.extendedProps.appointment) }}m
+                  </span>
+                  <span 
+                    v-else-if="arg.event.extendedProps.appointment?.status === 'IN_PROGRESS'" 
+                    class="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-blue-700 dark:text-blue-400 bg-blue-100/90 dark:bg-blue-500/20 px-1.5 py-0.5 rounded shrink-0"
+                  >
+                    <span class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping"></span>
                     Cadeira
                   </span>
                   <span 
                     v-else-if="arg.event.extendedProps.appointment?.status === 'COMPLETED'" 
-                    class="text-[9px] font-bold text-emerald-400 uppercase tracking-wider"
+                    class="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider bg-emerald-100/80 dark:bg-emerald-500/20 px-1.5 py-0.5 rounded shrink-0"
                   >
                     Pago
                   </span>
                   <span 
                     v-else-if="arg.event.extendedProps.appointment?.status === 'CONFIRMED'" 
-                    class="text-[9px] font-bold text-amber-400 uppercase tracking-wider"
+                    class="text-[9px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider bg-amber-100/80 dark:bg-amber-500/20 px-1.5 py-0.5 rounded shrink-0"
                   >
                     Confirmado
                   </span>
@@ -1316,20 +1665,20 @@ onMounted(async () => {
 
                 <!-- Middle: Cliente & Serviço -->
                 <div class="truncate my-auto py-0.5 min-w-0">
-                  <div class="text-xs font-black text-white truncate tracking-tight">
+                  <div class="text-xs font-black text-slate-900 dark:text-white truncate tracking-tight">
                     {{ arg.event.extendedProps.appointment?.customer?.name }}
                   </div>
-                  <div class="text-[10px] text-slate-300 truncate font-medium mt-0.5">
+                  <div class="text-[10px] text-slate-600 dark:text-slate-300 truncate font-semibold mt-0.5">
                     {{ arg.event.extendedProps.appointment?.service?.name }}
                   </div>
                 </div>
 
                 <!-- Bottom: Preço + Origem Amigável -->
-                <div class="flex items-center justify-between text-[10px] font-bold shrink-0 pt-1 border-t border-white/10">
-                  <span class="font-mono text-amber-400 font-extrabold">
+                <div class="flex items-center justify-between text-[10px] font-bold shrink-0 pt-1 border-t border-slate-200/60 dark:border-white/10">
+                  <span class="font-mono font-extrabold text-slate-900 dark:text-white">
                     R$ {{ Number(arg.event.extendedProps.appointment?.finalPrice).toFixed(2).replace('.', ',') }}
                   </span>
-                  <span class="text-[9px] text-slate-400 truncate max-w-[90px] font-medium">
+                  <span class="text-[9px] text-slate-500 dark:text-slate-400 truncate max-w-[90px] font-medium">
                     {{ getOriginInfo(arg.event.extendedProps.appointment?.origin).shortLabel }}
                   </span>
                 </div>
@@ -1345,7 +1694,7 @@ onMounted(async () => {
     <!-- ================= VIEW MODE 2: LISTA LINEAR ================= -->
     <div v-else class="space-y-3">
       <div 
-        v-for="apt in appointments" 
+        v-for="apt in filteredAppointments" 
         :key="apt.id"
         @click="openDetailsModal(apt)"
         class="bg-white dark:bg-[#121824] p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition hover:border-amber-500/30 cursor-pointer"
@@ -1702,6 +2051,27 @@ onMounted(async () => {
         </div>
 
         <div class="space-y-4 overflow-y-auto flex-1 pr-1 pb-2 no-scrollbar mt-4">
+
+          <!-- AVISO DE ATRASO DO CLIENTE (SE HOUVER) -->
+          <div 
+            v-if="getDelayMinutes(activeAppointmentDetails) > 0" 
+            class="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-between gap-3 animate-pulse"
+          >
+            <div class="flex items-center gap-2">
+              <span class="text-base">⚠️</span>
+              <div>
+                <span class="text-xs font-black text-rose-400 block">Cliente com atraso de {{ getDelayMinutes(activeAppointmentDetails) }} minutos</span>
+                <span class="text-[10px] text-rose-300/80">Horário previsto: {{ activeAppointmentDetails.time }}</span>
+              </div>
+            </div>
+            <a 
+              :href="getLateWhatsAppUrl(activeAppointmentDetails)" 
+              target="_blank" 
+              class="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-black text-xs transition cursor-pointer shrink-0 shadow-sm"
+            >
+              Cobrar no WhatsApp
+            </a>
+          </div>
 
           <!-- 1. ORIGEM AMIGÁVEL DO AGENDAMENTO -->
           <div 
@@ -2267,46 +2637,121 @@ onMounted(async () => {
       </div>
     </div>
 
+
+    <!-- ================= MODAL: COMPROVANTE / RECIBO DO CHECKOUT ================= -->
+    <div 
+      v-if="isReceiptModalOpen && completedReceiptData" 
+      class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+    >
+      <div class="bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4">
+        
+        <div class="text-center space-y-1">
+          <div class="w-12 h-12 rounded-2xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center mx-auto mb-2">
+            <CheckCircle2 class="w-7 h-7" />
+          </div>
+          <h3 class="text-lg font-black text-slate-900 dark:text-white">Atendimento Concluído!</h3>
+          <p class="text-xs text-slate-400">Comanda fechada e receita lançada no caixa com sucesso.</p>
+        </div>
+
+        <!-- Mini Recibo Visual -->
+        <div class="p-4 rounded-2xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-2 font-mono text-xs">
+          <div class="flex items-center justify-between pb-1.5 border-b border-dashed border-slate-200 dark:border-white/10">
+            <span class="font-bold text-slate-700 dark:text-slate-300">{{ completedReceiptData.customerName }}</span>
+            <span class="text-[10px] text-slate-400">{{ completedReceiptData.time }}</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
+            <span>1x {{ completedReceiptData.serviceName }}</span>
+            <span>R$ {{ Number(completedReceiptData.serviceOriginalPrice).toFixed(2).replace('.', ',') }}</span>
+          </div>
+          <div v-if="completedReceiptData.discount > 0" class="flex items-center justify-between text-[11px] text-rose-500 font-bold">
+            <span>- Desconto Cortesia</span>
+            <span>-R$ {{ Number(completedReceiptData.discount).toFixed(2).replace('.', ',') }}</span>
+          </div>
+          <div v-for="item in completedReceiptData.items" :key="item.product.id" class="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400">
+            <span>{{ item.quantity }}x {{ item.product.name }}</span>
+            <span>R$ {{ (Number(item.product.salePrice) * item.quantity).toFixed(2).replace('.', ',') }}</span>
+          </div>
+          <div class="pt-2 border-t border-slate-200 dark:border-white/10 flex items-center justify-between font-black text-slate-900 dark:text-white text-sm">
+            <span>TOTAL PAGO:</span>
+            <span class="text-emerald-500">R$ {{ Number(completedReceiptData.totalGross).toFixed(2).replace('.', ',') }}</span>
+          </div>
+          <div class="text-[10px] text-slate-400 flex items-center justify-between">
+            <span>Forma: {{ completedReceiptData.paymentMethod }}</span>
+            <span v-if="completedReceiptData.cashChange > 0" class="text-amber-500 font-bold">
+              Troco: R$ {{ Number(completedReceiptData.cashChange).toFixed(2).replace('.', ',') }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Ações do Comprovante -->
+        <div class="space-y-2 pt-1">
+          <button 
+            @click="printThermalReceipt(completedReceiptData)"
+            class="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition shadow-sm"
+          >
+            <Printer class="w-4 h-4" />
+            <span>Imprimir Comprovante Térmico (80mm)</span>
+          </button>
+
+          <button 
+            @click="sendReceiptWhatsApp(completedReceiptData)"
+            class="w-full py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500 text-emerald-500 hover:text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer transition border border-emerald-500/30"
+          >
+            <Send class="w-4 h-4" />
+            <span>Enviar Recibo via WhatsApp</span>
+          </button>
+
+          <button 
+            @click="isReceiptModalOpen = false"
+            class="w-full py-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white font-semibold text-xs cursor-pointer transition"
+          >
+            Fechar e Voltar para a Agenda
+          </button>
+        </div>
+
+      </div>
+    </div>
   </div>
 </template>
 
 <style>
-/* FullCalendar Luxury Dark Theme for BarblyClub */
+/* FullCalendar Base Light & Luxury Dark Theme for BarblyClub */
 .fullcalendar-custom-theme .fc {
   font-family: inherit;
-  --fc-border-color: rgba(255, 255, 255, 0.06);
-  --fc-today-bg-color: rgba(245, 158, 11, 0.03);
+  --fc-border-color: #e2e8f0;
+  --fc-today-bg-color: rgba(245, 158, 11, 0.05);
   --fc-now-indicator-color: #f59e0b;
   --fc-page-bg-color: transparent;
-  --fc-neutral-bg-color: #0f1523;
-  --fc-list-event-hover-bg-color: rgba(255, 255, 255, 0.04);
+  --fc-neutral-bg-color: #f8fafc;
+  --fc-list-event-hover-bg-color: #f1f5f9;
 }
 
+/* Light Mode Header Cells */
 .fullcalendar-custom-theme .fc-theme-standard th {
-  border-color: rgba(255, 255, 255, 0.07) !important;
-  background-color: #111726 !important;
+  border-color: #e2e8f0 !important;
+  background-color: #f8fafc !important;
   padding: 0 !important;
 }
 
 .fullcalendar-custom-theme .fc-col-header-cell,
 .fullcalendar-custom-theme .fc-timegrid-col {
   min-width: 200px !important;
-  border-color: rgba(255, 255, 255, 0.05) !important;
+  border-color: #e2e8f0 !important;
 }
 
 .fullcalendar-custom-theme .fc-timegrid-slot {
   height: 38px !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+  border-bottom: 1px solid #f1f5f9 !important;
 }
 
 .fullcalendar-custom-theme .fc-timegrid-slot-minor {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.02) !important;
+  border-bottom: 1px solid #f8fafc !important;
 }
 
 .fullcalendar-custom-theme .fc-timegrid-slot-label-cushion {
   font-size: 11px;
-  font-weight: 600;
-  color: #64748b;
+  font-weight: 700;
+  color: #475569 !important;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   padding: 2px 8px !important;
 }
@@ -2331,12 +2776,13 @@ onMounted(async () => {
   width: 100% !important;
 }
 
+/* Light Mode Non-business Hours (soft light slate with subtle diagonal stripes) */
 .fullcalendar-custom-theme .fc-non-business {
-  background-color: rgba(0, 0, 0, 0.4) !important;
+  background-color: #f8fafc !important;
   background-image: repeating-linear-gradient(
     -45deg,
-    rgba(255, 255, 255, 0.015),
-    rgba(255, 255, 255, 0.015) 8px,
+    rgba(148, 163, 184, 0.08),
+    rgba(148, 163, 184, 0.08) 8px,
     transparent 8px,
     transparent 16px
   ) !important;
@@ -2345,7 +2791,7 @@ onMounted(async () => {
 .fullcalendar-custom-theme .fc-now-indicator-line {
   border-color: #f59e0b !important;
   border-width: 2px !important;
-  box-shadow: 0 0 10px rgba(245, 158, 11, 0.8) !important;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.5) !important;
   z-index: 10 !important;
 }
 
@@ -2353,5 +2799,46 @@ onMounted(async () => {
   border-color: #f59e0b !important;
   border-width: 5px 0 5px 6px !important;
   border-left-color: #f59e0b !important;
+}
+
+/* Dark Mode Luxury Overrides */
+html.dark .fullcalendar-custom-theme .fc {
+  --fc-border-color: rgba(255, 255, 255, 0.06);
+  --fc-today-bg-color: rgba(245, 158, 11, 0.03);
+  --fc-neutral-bg-color: #0f1523;
+  --fc-list-event-hover-bg-color: rgba(255, 255, 255, 0.04);
+}
+
+html.dark .fullcalendar-custom-theme .fc-theme-standard th {
+  border-color: rgba(255, 255, 255, 0.07) !important;
+  background-color: #111726 !important;
+}
+
+html.dark .fullcalendar-custom-theme .fc-col-header-cell,
+html.dark .fullcalendar-custom-theme .fc-timegrid-col {
+  border-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+html.dark .fullcalendar-custom-theme .fc-timegrid-slot {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+html.dark .fullcalendar-custom-theme .fc-timegrid-slot-minor {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02) !important;
+}
+
+html.dark .fullcalendar-custom-theme .fc-timegrid-slot-label-cushion {
+  color: #64748b !important;
+}
+
+html.dark .fullcalendar-custom-theme .fc-non-business {
+  background-color: rgba(0, 0, 0, 0.4) !important;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.015),
+    rgba(255, 255, 255, 0.015) 8px,
+    transparent 8px,
+    transparent 16px
+  ) !important;
 }
 </style>

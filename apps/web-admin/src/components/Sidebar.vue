@@ -13,7 +13,8 @@ import {
   LogOut,
   Sparkles,
   Smartphone,
-  X
+  X,
+  Tv
 } from 'lucide-vue-next';
 import { useAuthStore } from '../stores/auth';
 
@@ -184,6 +185,19 @@ function handleLinkClick() {
               <Package class="w-4 h-4" />
               <span>Produtos &amp; Estoque</span>
             </div>
+          </router-link>
+
+          <router-link 
+            to="/tv-media" 
+            @click="handleLinkClick"
+            class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition"
+            :class="route.path === '/tv-media' ? 'bg-brand-light text-brand' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium'"
+          >
+            <div class="flex items-center gap-3">
+              <Tv class="w-4 h-4 text-amber-500" />
+              <span>Mídia TV &amp; Anúncios</span>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500/15 text-amber-500 border border-amber-500/30 uppercase tracking-wider">Novo</span>
           </router-link>
         </nav>
       </div>

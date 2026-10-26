@@ -85,6 +85,12 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/tv-media',
+      name: 'tv-media',
+      component: () => import('../views/TvMediaView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: SettingsView,

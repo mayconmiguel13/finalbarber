@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../db.js';
+import { barberOperationalStatusMap } from './barbers.js';
 
 export async function metricsRoutes(app: FastifyInstance) {
   // GET /api/metrics/dashboard - Real-time metrics aggregated directly from MySQL
@@ -104,7 +105,11 @@ export async function metricsRoutes(app: FastifyInstance) {
       // Split Lei Salão-Parceiro (Lei 13.352) for today
       let todayBarberCommission = 0;
       completedToday.forEach((apt) => {
-        const rate = (apt.barber.commissionRate ? Number(apt.barber.commissionRate) : 50) / 100;
+        const rate = (apt.barber?.commissionRate ? Number(apt.barber.commissionRate) : 50) / 100;
+        todayBarberCommission += Number(apt.finalPrice || 0) * rate;
+      });
+      inProgressToday.forEach((apt) => {
+        const rate = (apt.barber?.commissionRate ? Number(apt.barber.commissionRate) : 50) / 100;
         todayBarberCommission += Number(apt.finalPrice || 0) * rate;
       });
       (Array.isArray(todayProductSales) ? todayProductSales : []).forEach((s: any) => {
@@ -133,6 +138,40 @@ export async function metricsRoutes(app: FastifyInstance) {
       });
       monthBarberShare += Number(monthProdRow.totalCommissions) || 0;
       const monthSalonShare = Math.max(0, monthTotalRevenue - monthBarberShare);
+
+      // 4.1 Weekly Calculations (Segunda a Domingo da semana atual)
+      const startOfWeek = new Date(now);
+      const dayOfWeek = now.getDay();
+      const diffToMonday = (dayOfWeek === 0 ? -6 : 1) - dayOfWeek;
+      startOfWeek.setDate(now.getDate() + diffToMonday);
+      startOfWeek.setHours(0, 0, 0, 0);
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6);
+      endOfWeek.setHours(23, 59, 59, 999);
+
+      const weekAppointments = monthAppointments.filter((a) => {
+        const time = new Date(a.startsAt).getTime();
+        return time >= startOfWeek.getTime() && time <= endOfWeek.getTime();
+      });
+      const completedWeek = weekAppointments.filter((a) => a.status === 'COMPLETED');
+      const inProgressWeek = weekAppointments.filter((a) => a.status === 'IN_PROGRESS');
+      const weekServicesRevenue = completedWeek.reduce((acc, a) => acc + Number(a.finalPrice || 0), 0) +
+        inProgressWeek.reduce((acc, a) => acc + Number(a.finalPrice || 0), 0);
+      const weekProductsRevenue = todayProductsRevenue;
+      const weekTotalRevenue = weekServicesRevenue + weekProductsRevenue;
+
+      let weekBarberShare = 0;
+      completedWeek.forEach((apt) => {
+        const rate = (apt.barber?.commissionRate ? Number(apt.barber.commissionRate) : 50) / 100;
+        weekBarberShare += Number(apt.finalPrice || 0) * rate;
+      });
+      inProgressWeek.forEach((apt) => {
+        const rate = (apt.barber?.commissionRate ? Number(apt.barber.commissionRate) : 50) / 100;
+        weekBarberShare += Number(apt.finalPrice || 0) * rate;
+      });
+      const weekSalonNetShare = Math.max(0, weekTotalRevenue - weekBarberShare);
+      const weekTotalTransactions = completedWeek.length + (todayProductSales?.length || 0);
+      const weekAverageTicket = weekTotalTransactions > 0 ? (weekTotalRevenue / weekTotalTransactions) : todayAverageTicket;
 
       // 5. Real-Time Chair Status (Cockpit das Cadeiras)
       const chairs = barbers.map((barber) => {
@@ -190,6 +229,19 @@ export async function metricsRoutes(app: FastifyInstance) {
           };
         }
 
+        // Checar se há status operacional manual (Pausa / Almoço / Limpeza)
+        const opStatus = barberOperationalStatusMap.get(barber.id);
+        let chairStatus: 'OCCUPIED' | 'AVAILABLE' | 'BREAK' | 'CLEANING' = currentDetails ? 'OCCUPIED' : 'AVAILABLE';
+        let chairStatusLabel = currentDetails ? 'Em Atendimento' : 'Disponível • Livre';
+
+        if (opStatus && opStatus.status === 'BREAK') {
+          chairStatus = 'BREAK';
+          chairStatusLabel = opStatus.message || 'Em Almoço / Pausa';
+        } else if (opStatus && opStatus.status === 'CLEANING') {
+          chairStatus = 'CLEANING';
+          chairStatusLabel = opStatus.message || 'Limpeza de Bancada';
+        }
+
         return {
           barberId: barber.id,
           barberName: barber.user.name,
@@ -197,7 +249,8 @@ export async function metricsRoutes(app: FastifyInstance) {
           avatarUrl: barber.user.avatarUrl || '',
           chair: barber.chair || 'Cadeira 01',
           commissionRate: Number(barber.commissionRate) || 50,
-          status: currentDetails ? ('OCCUPIED' as const) : ('AVAILABLE' as const),
+          status: chairStatus,
+          statusLabel: chairStatusLabel,
           currentAppointment: currentDetails,
           nextAppointment: nextDetails,
         };
@@ -338,6 +391,16 @@ export async function metricsRoutes(app: FastifyInstance) {
         })),
 
         // NEW LUXURY COCKPIT SUITE
+        week: {
+          totalRevenue: weekTotalRevenue,
+          servicesRevenue: weekServicesRevenue,
+          productsRevenue: weekProductsRevenue,
+          barberShare: weekBarberShare,
+          salonNetShare: weekSalonNetShare,
+          totalAppointments: weekAppointments.length,
+          completedAppointments: completedWeek.length,
+          averageTicket: weekAverageTicket,
+        },
         today: {
           totalRevenue: todayTotalRevenue,
           servicesRevenue: todayServicesRevenue,

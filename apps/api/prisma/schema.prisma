@@ -104,6 +104,7 @@ model Organization {
   galleryItems        GalleryItem[]
   financialEntries    FinancialEntry[]
   productSales        ProductSale[]
+  tvAds               TvAd[]
 
   @@map("organizations")
 }
@@ -327,7 +328,7 @@ model FinancialEntry {
   dueDate          DateTime?
 
   createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  updatedAt        DateTime      @default(now()) @updatedAt
 
   organization     Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -469,4 +470,30 @@ model WhatsAppMessage {
 
   @@index([conversationId])
   @@map("whatsapp_messages")
+}
+
+
+model TvAd {
+  id                 String        @id @default(uuid())
+  orgId              String
+  title              String        @db.VarChar(120)
+  subtitle           String?       @db.VarChar(255)
+  category           String        @default("PARTNER") @db.VarChar(50) // PARTNER, PRODUCTS, BAR, NOTICE
+  mediaType          String        @default("IMAGE") @db.VarChar(20) // IMAGE, VIDEO
+  imageUrl           String        @db.LongText
+  videoUrl           String?       @db.LongText
+  targetUrl          String?       @db.VarChar(255)
+  qrCodeLabel        String?       @db.VarChar(100)
+  priceTag           String?       @db.VarChar(50)
+  partnerMonthlyFee  Decimal?      @default(0.00) @db.Decimal(10, 2)
+  displayDuration    Int           @default(12) // segundos
+  active             Boolean       @default(true)
+  expiresAt          DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  organization       Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("tv_ads")
 }

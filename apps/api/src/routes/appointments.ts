@@ -273,6 +273,7 @@ export async function appointmentsRoutes(app: FastifyInstance) {
       origin: z.enum(['WHATSAPP_AI', 'PWA_WEB', 'COUNTER_WALKIN']).default('COUNTER_WALKIN'),
       status: z.enum(['PENDING_PAYMENT', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).default('CONFIRMED'),
       paymentMethod: z.string().default('PIX'),
+      forceOverlap: z.boolean().default(false),
     });
 
     const parsed = schema.safeParse(request.body);
@@ -338,6 +339,40 @@ export async function appointmentsRoutes(app: FastifyInstance) {
         ? `[Combo: ${serviceNames}] ${body.notes?.trim() || ''}`
         : (body.notes?.trim() || null);
 
+      // 3.1 Verificação de Conflito de Horário (Double Booking Prevention)
+      if (!body.forceOverlap && body.status !== 'CANCELLED' && body.status !== 'NO_SHOW') {
+        const conflictingAppointment = await prisma.appointment.findFirst({
+          where: {
+            orgId,
+            barberId: barber.id,
+            status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+            startsAt: { lt: endsAtDate },
+            endsAt: { gt: startsAtDate },
+          },
+          include: {
+            customer: true,
+            service: true,
+          },
+        });
+
+        if (conflictingAppointment) {
+          const cStart = new Date(conflictingAppointment.startsAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          const cEnd = new Date(conflictingAppointment.endsAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          return reply.status(409).send({
+            error: 'CONFLICT_OVERLAP',
+            message: `O profissional ${barber.user.name} já possui atendimento marcado com ${conflictingAppointment.customer.name} (${conflictingAppointment.service.name}) das ${cStart} às ${cEnd}.`,
+            conflict: {
+              appointmentId: conflictingAppointment.id,
+              clientName: conflictingAppointment.customer.name,
+              serviceName: conflictingAppointment.service.name,
+              startsAt: conflictingAppointment.startsAt,
+              endsAt: conflictingAppointment.endsAt,
+              timeFormatted: `${cStart} às ${cEnd}`,
+            },
+          });
+        }
+      }
+
       // 4. Salvar agendamento no banco
       const aptId = 'apt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
       const appointment = await prisma.appointment.create({
@@ -364,8 +399,8 @@ export async function appointmentsRoutes(app: FastifyInstance) {
         const commAmount = (finalPrice * commRate) / 100;
         const finId = 'fin_apt_' + aptId;
         await prisma.$queryRawUnsafe(`
-          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt)
-          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, NOW(), NOW())
+          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, NOW(), NOW(), NOW())
         `, finId, orgId, `Atendimento: ${serviceNames} (${customer.name})`, finalPrice, body.paymentMethod, barber.id, commAmount);
       }
 
@@ -442,8 +477,8 @@ export async function appointmentsRoutes(app: FastifyInstance) {
         const existing: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM financial_entries WHERE id = ?`, finId);
         if (existing.length === 0) {
           await prisma.$queryRawUnsafe(`
-            INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt)
-            VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, NOW(), NOW())
+            INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+            VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, NOW(), NOW(), NOW())
           `, finId, orgId, `Atendimento: ${appointment.service.name} (${appointment.customer.name})`, finalPrice, paymentMethod, appointment.barberId, commAmount);
         }
 
@@ -480,8 +515,8 @@ export async function appointmentsRoutes(app: FastifyInstance) {
               const finProdId = 'fe_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
               const desc = `Consumo em Cadeira: ${qty}x ${prod.name} (${appointment.customer.name})`;
               await prisma.$queryRawUnsafe(`
-                INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt)
-                VALUES (?, ?, 'INCOME', 'Venda de Produto', ?, ?, ?, 'PAID', ?, ?, NOW(), NOW())
+                INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+                VALUES (?, ?, 'INCOME', 'Venda de Produto', ?, ?, ?, 'PAID', ?, ?, NOW(), NOW(), NOW())
               `, finProdId, orgId, desc, totalProdAmount, paymentMethod, appointment.barberId, prodCommAmount);
             }
           }
@@ -530,6 +565,40 @@ export async function appointmentsRoutes(app: FastifyInstance) {
 
       const newStartsAt = new Date(startsAt);
       let newEndsAt = endsAt ? new Date(endsAt) : new Date(newStartsAt.getTime() + (apt.service.durationMinutes || 35) * 60000);
+
+      const targetBarberId = barberId || apt.barberId;
+
+      if (!parsed.data.forceOverlap && apt.status !== 'CANCELLED' && apt.status !== 'NO_SHOW') {
+        const conflictingAppointment = await prisma.appointment.findFirst({
+          where: {
+            id: { not: id },
+            orgId,
+            barberId: targetBarberId,
+            status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+            startsAt: { lt: newEndsAt },
+            endsAt: { gt: newStartsAt },
+          },
+          include: {
+            customer: true,
+            service: true,
+          },
+        });
+
+        if (conflictingAppointment) {
+          const cStart = new Date(conflictingAppointment.startsAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          const cEnd = new Date(conflictingAppointment.endsAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          return reply.status(409).send({
+            error: 'CONFLICT_OVERLAP',
+            message: `Conflito: ${conflictingAppointment.customer.name} (${conflictingAppointment.service.name}) já está agendado das ${cStart} às ${cEnd}.`,
+            conflict: {
+              appointmentId: conflictingAppointment.id,
+              clientName: conflictingAppointment.customer.name,
+              serviceName: conflictingAppointment.service.name,
+              timeFormatted: `${cStart} às ${cEnd}`,
+            },
+          });
+        }
+      }
 
       const updateData: any = {
         startsAt: newStartsAt,

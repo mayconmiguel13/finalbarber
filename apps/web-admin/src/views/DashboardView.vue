@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import { 
   Building2, 
   ChevronDown, 
@@ -38,13 +38,20 @@ import {
   SlidersHorizontal,
   ChevronRight,
   Smartphone,
-  Phone
+  Phone,
+  Tv,
+  Minimize2,
+  ChevronLeft,
+  Play,
+  Pause,
+  Video
 } from 'lucide-vue-next';
-import { api, type DashboardMetrics, type AppointmentItem, type Product, type Barber, type Customer } from '../services/api';
+import { api, type DashboardMetrics, type AppointmentItem, type Product, type Barber, type Customer, type TvAd, type TvSettings } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import { useToastStore } from '../stores/toast';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 const toast = useToastStore();
 
@@ -134,12 +141,18 @@ function formatOrigin(origin?: string): { label: string; icon: string } {
   }
 }
 
-// Carregar Dados da API
-async function loadData(isRefresh = false) {
+// Telemetria em Tempo Real (Auto-Sync)
+const secondsSinceUpdate = ref(0);
+let previousAppointmentsCount = 0;
+let autoRefreshTimer: any = null;
+let secondsTimer: any = null;
+
+// Carregar Dados da API (com suporte a silent polling em segundo plano)
+async function loadData(isRefresh = false, isSilent = false) {
   if (isRefresh) {
     refreshing.value = true;
     playPopSound();
-  } else {
+  } else if (!isSilent) {
     loading.value = true;
   }
   error.value = null;
@@ -149,8 +162,17 @@ async function loadData(isRefresh = false) {
       api.getDashboardMetrics(),
       api.getTodayAppointments(),
     ]);
+
+    // Notificação sonora/toast suave se um novo agendamento chegou via WhatsApp ou Web
+    if (previousAppointmentsCount > 0 && (appointmentsData?.length || 0) > previousAppointmentsCount) {
+      playPopSound();
+      toast.success('Novo agendamento recebido em tempo real!', 'Cockpit Barbly');
+    }
+    previousAppointmentsCount = appointmentsData?.length || 0;
+
     metrics.value = metricsData;
     appointments.value = appointmentsData;
+    secondsSinceUpdate.value = 0;
 
     // Também pré-carrega produtos se vazio para o Frigobar Express
     if (productsList.value.length === 0) {
@@ -158,8 +180,12 @@ async function loadData(isRefresh = false) {
       api.getBarbers().then((b) => barbersList.value = b || []).catch(() => {});
     }
   } catch (err: any) {
-    error.value = err.message || 'Erro ao carregar cockpit operacional';
-    toast.error('Falha ao sincronizar dados do dashboard');
+    if (!isSilent) {
+      error.value = err.message || 'Erro ao carregar cockpit operacional';
+      toast.error('Falha ao sincronizar dados do dashboard');
+    } else {
+      console.warn('[Cockpit AutoSync] Erro na sincronização silenciosa:', err.message);
+    }
   } finally {
     loading.value = false;
     refreshing.value = false;
@@ -315,13 +341,366 @@ const quickFrigobarProducts = computed(() => {
   return drinks.length >= 4 ? drinks.slice(0, 4) : productsList.value.slice(0, 4);
 });
 
+
+// ================= 1. RECURSO: MODO TV / PAINEL KIOSK & MÍDIA INDOOR =================
+const isTvMode = ref(false);
+const isTvPaused = ref(false);
+const videoErrorMap = ref<Record<string, boolean>>({});
+
+function handleVideoError(adId?: string) {
+  if (adId) {
+    videoErrorMap.value[adId] = true;
+  }
+}
+
+function formatRemainingMinutes(rem?: number | null) {
+  if (rem === null || rem === undefined) return "";
+  if (rem <= 0) return "Finalizando corte...";
+  return `Resta: ~${rem} min`;
+}
+const currentClock = ref('');
+const currentDateFormatted = ref('');
+let clockTimer: any = null;
+
+// Carrossel Dinâmico de Mídia Indoor & Anúncios em Vídeo/Imagem
+const tvAds = ref<TvAd[]>([]);
+const tvSettings = ref<TvSettings | null>(null);
+const activeTvSlide = ref(0);
+const slideProgress = ref(0);
+let tvProgressTimer: any = null;
+
+// Slides Padrão com Vídeos e Flyers de Alta Resolução
+const defaultTvSlides: TvAd[] = [
+  {
+    id: 'def_1',
+    orgId: 'default',
+    title: 'Garage 66 Smash Burger & Grill',
+    subtitle: 'Os melhores smash burgers artesanais da região com queijo derretido e carnes nobres!',
+    category: 'ALIMENTACAO',
+    mediaType: 'VIDEO',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-hands-holding-a-delicious-burger-41584-large.mp4',
+    imageUrl: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=900&auto=format&fit=crop',
+    targetUrl: 'https://instagram.com',
+    qrCodeLabel: 'Aponte a câmera e garanta 15% OFF',
+    priceTag: '15% OFF NO COMBO',
+    partnerMonthlyFee: 150,
+    displayDuration: 14,
+    active: true,
+  },
+  {
+    id: 'def_2',
+    orgId: 'default',
+    title: 'Garage Detail Estética Automotiva',
+    subtitle: 'Lavagem técnica detalhada e vitrificação enquanto você cuida do seu visual.',
+    category: 'AUTOMOTIVO',
+    mediaType: 'VIDEO',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-cleaning-a-car-with-high-pressure-water-41566-large.mp4',
+    imageUrl: 'https://images.unsplash.com/photo-1520340356584-f9917d1eea6f?w=900&auto=format&fit=crop',
+    targetUrl: 'https://wa.me',
+    qrCodeLabel: 'Agende seu carro pelo WhatsApp',
+    priceTag: 'LAVAGEM R$ 50',
+    partnerMonthlyFee: 180,
+    displayDuration: 14,
+    active: true,
+  },
+  {
+    id: 'def_3',
+    orgId: 'default',
+    title: 'Clube VIP Barbly Club',
+    subtitle: 'Cortes ilimitados o mês inteiro e cerveja gelada de cortesia em cada visita ao lounge!',
+    category: 'BARBEARIA',
+    mediaType: 'VIDEO',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-barber-cutting-the-hair-of-a-man-with-scissors-41530-large.mp4',
+    imageUrl: 'https://images.unsplash.com/photo-1621607512214-68297480165e?w=900&auto=format&fit=crop',
+    targetUrl: 'https://barblyclub.com.br',
+    qrCodeLabel: 'Conheça os planos no seu celular',
+    priceTag: 'ASSINATURA VIP',
+    partnerMonthlyFee: 0,
+    displayDuration: 12,
+    active: true,
+  },
+  {
+    id: 'def_4',
+    orgId: 'default',
+    title: 'Cervejas Artesanais & Chopp Gelado',
+    subtitle: 'Aproveite sua espera relaxando com as melhores cervejas artesanais trincando de geladas!',
+    category: 'BEBIDAS',
+    mediaType: 'VIDEO',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-pouring-cold-beer-into-a-glass-41517-large.mp4',
+    imageUrl: 'https://images.unsplash.com/photo-1535958636474-b021ee887b13?w=900&auto=format&fit=crop',
+    targetUrl: 'https://barblyclub.com.br',
+    qrCodeLabel: 'Cardápio digital no seu celular',
+    priceTag: 'CHOPP R$ 14',
+    partnerMonthlyFee: 0,
+    displayDuration: 12,
+    active: true,
+  },
+  {
+    id: 'def_5',
+    orgId: 'default',
+    title: 'Black Skull Tattoo Studio',
+    subtitle: 'Tatuadores premiados especializados em realismo e fineline ao lado da barbearia!',
+    category: 'TATUAGEM',
+    mediaType: 'VIDEO',
+    videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-tattoo-artist-working-on-a-tattoo-machine-41544-large.mp4',
+    imageUrl: 'https://images.unsplash.com/photo-1598371839696-5c5bb00bdc28?w=900&auto=format&fit=crop',
+    targetUrl: 'https://instagram.com',
+    qrCodeLabel: 'Acesse o portfólio no Instagram',
+    priceTag: 'FLASH R$ 190',
+    partnerMonthlyFee: 200,
+    displayDuration: 14,
+    active: true,
+  },
+  {
+    id: 'def_6',
+    orgId: 'default',
+    title: 'Pomada Matte Barbly Club',
+    subtitle: 'Efeito seco natural e fixação extrema para o dia todo. Leve direto no caixa!',
+    category: 'BARBEARIA',
+    mediaType: 'IMAGE',
+    imageUrl: 'https://images.unsplash.com/photo-1621607512214-68297480165e?w=900&auto=format&fit=crop',
+    targetUrl: 'https://barblyclub.com.br',
+    qrCodeLabel: 'Compre no caixa ou online',
+    priceTag: 'R$ 49,90',
+    partnerMonthlyFee: 0,
+    displayDuration: 10,
+    active: true,
+  }
+];
+
+const activeSlides = computed(() => {
+  const validDbAds = (tvAds.value || []).filter(a => a.active);
+  return validDbAds.length > 0 ? validDbAds : defaultTvSlides;
+});
+
+const currentAd = computed<TvAd | null>(() => {
+  const slides = activeSlides.value;
+  if (!slides || slides.length === 0) return null;
+  return slides[activeTvSlide.value % slides.length];
+});
+
+function updateClock() {
+  const now = new Date();
+  currentClock.value = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  currentDateFormatted.value = now.toLocaleDateString('pt-BR', {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+async function loadTvAds() {
+  try {
+    const [res, settingsRes] = await Promise.allSettled([
+      api.getTvAds(),
+      api.getTvSettings()
+    ]);
+    if (res.status === 'fulfilled' && res.value && res.value.ads) {
+      tvAds.value = res.value.ads;
+    }
+    if (settingsRes.status === 'fulfilled' && settingsRes.value) {
+      tvSettings.value = settingsRes.value;
+    }
+  } catch (err) {
+    console.error('Falha ao carregar anúncios da TV:', err);
+  }
+}
+
+function startTvCarousel() {
+  if (tvProgressTimer) clearInterval(tvProgressTimer);
+  slideProgress.value = 0;
+
+  // Timer de 100ms para barra de progresso suave
+  tvProgressTimer = setInterval(() => {
+    if (isTvPaused.value) return; // Pausado para permitir escaneamento do QR Code
+    const currentDurationSec = currentAd.value?.displayDuration || 14;
+    const step = 100 / (currentDurationSec * 10);
+    slideProgress.value += step;
+
+    if (slideProgress.value >= 100) {
+      slideProgress.value = 0;
+      const total = activeSlides.value.length || 1;
+      activeTvSlide.value = (activeTvSlide.value + 1) % total;
+    }
+  }, 100);
+}
+
+function selectTvSlide(index: number) {
+  activeTvSlide.value = index;
+  slideProgress.value = 0;
+}
+
+function nextTvSlide() {
+  playPopSound();
+  slideProgress.value = 0;
+  const total = activeSlides.value.length || 1;
+  activeTvSlide.value = (activeTvSlide.value + 1) % total;
+}
+
+function prevTvSlide() {
+  playPopSound();
+  slideProgress.value = 0;
+  const total = activeSlides.value.length || 1;
+  activeTvSlide.value = (activeTvSlide.value - 1 + total) % total;
+}
+
+function toggleTvPause() {
+  playPopSound();
+  isTvPaused.value = !isTvPaused.value;
+}
+
+function toggleTvMode() {
+  playPopSound();
+  isTvMode.value = !isTvMode.value;
+  if (isTvMode.value) {
+    updateClock();
+    activeTvSlide.value = 0;
+    isTvPaused.value = false;
+    loadTvAds();
+    startTvCarousel();
+
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  } else {
+    if (tvProgressTimer) clearInterval(tvProgressTimer);
+    if (document.exitFullscreen && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+}
+// Próximos da fila para a TV (Sem dados financeiros)
+const upcomingQueue = computed(() => {
+  if (!appointments.value) return [];
+  return appointments.value
+    .filter(a => a.status === 'CONFIRMED' || a.status === 'PENDING_PAYMENT')
+    .slice(0, 4);
+});
+
+function handleKeyDown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && isTvMode.value) {
+    isTvMode.value = false;
+  }
+}
+
+// ================= 2. RECURSO: ALTERNADOR RÁPIDO DE PERÍODO =================
+const selectedPeriod = ref<'today' | 'week' | 'month'>('today');
+
+function selectPeriod(p: 'today' | 'week' | 'month') {
+  playPopSound();
+  selectedPeriod.value = p;
+}
+
+const displayedRevenue = computed(() => {
+  if (selectedPeriod.value === 'week') return metrics.value?.week?.totalRevenue || 0;
+  if (selectedPeriod.value === 'month') return metrics.value?.month?.totalRevenue || 0;
+  return metrics.value?.today?.totalRevenue || 0;
+});
+
+const displayedServicesRevenue = computed(() => {
+  if (selectedPeriod.value === 'week') return metrics.value?.week?.servicesRevenue || 0;
+  if (selectedPeriod.value === 'month') return metrics.value?.month?.servicesRevenue || 0;
+  return metrics.value?.today?.servicesRevenue || 0;
+});
+
+const displayedProductsRevenue = computed(() => {
+  if (selectedPeriod.value === 'week') return metrics.value?.week?.productsRevenue || 0;
+  if (selectedPeriod.value === 'month') return metrics.value?.month?.productsRevenue || 0;
+  return metrics.value?.today?.productsRevenue || 0;
+});
+
+const displayedBarberShare = computed(() => {
+  if (selectedPeriod.value === 'week') return metrics.value?.week?.barberShare || 0;
+  if (selectedPeriod.value === 'month') return metrics.value?.month?.barberShare || 0;
+  return metrics.value?.today?.barberShare || 0;
+});
+
+const displayedSalonShare = computed(() => {
+  if (selectedPeriod.value === 'week') return metrics.value?.week?.salonNetShare || 0;
+  if (selectedPeriod.value === 'month') return metrics.value?.month?.salonShare || 0;
+  return metrics.value?.today?.salonNetShare || 0;
+});
+
+const displayedAppointmentsCount = computed(() => {
+  if (selectedPeriod.value === 'week') return metrics.value?.week?.totalAppointments || 0;
+  if (selectedPeriod.value === 'month') return metrics.value?.month?.completedAppointments || 0;
+  return metrics.value?.today?.totalAppointments || 0;
+});
+
+const displayedAverageTicket = computed(() => {
+  if (selectedPeriod.value === 'week') return metrics.value?.week?.averageTicket || 0;
+  if (selectedPeriod.value === 'month') {
+    const total = metrics.value?.month?.totalRevenue || 0;
+    const count = metrics.value?.month?.completedAppointments || 1;
+    return total > 0 && count > 0 ? total / count : 0;
+  }
+  return metrics.value?.today?.averageTicket || 0;
+});
+
+// ================= 3. RECURSO: STATUS RÁPIDO DE CADEIRA =================
+async function changeChairStatus(barberId: string, status: 'AVAILABLE' | 'BREAK' | 'CLEANING') {
+  playPopSound();
+  try {
+    await api.setBarberOperationalStatus(barberId, status);
+    toast.success(
+      status === 'BREAK'
+        ? 'Profissional colocado em Pausa / Almoço.'
+        : status === 'CLEANING'
+        ? 'Cadeira em Limpeza de Bancada.'
+        : 'Cadeira liberada para encaixes!',
+      'Status Atualizado'
+    );
+    await loadData(false, true);
+  } catch (err: any) {
+    toast.error(err.message || 'Falha ao alterar status da cadeira');
+  }
+}
+
+function handleWindowFocus() {
+  loadData(false, true);
+}
+
 onMounted(() => {
   loadData();
+  loadTvAds();
+
+  // Se rota tiver ?tv=1, abrir Modo TV automaticamente
+  if (route.query.tv === '1' || route.query.tv === 'true') {
+    setTimeout(() => {
+      toggleTvMode();
+    }, 350);
+  }
+
+  // 1. Auto-polling silencioso em segundo plano a cada 15 segundos
+  autoRefreshTimer = setInterval(() => {
+    loadData(false, true);
+  }, 15000);
+
+  // 2. Contador de segundos desde a última sincronização
+  secondsTimer = setInterval(() => {
+    secondsSinceUpdate.value++;
+  }, 1000);
+
+  // 3. Sincronizar na hora ao voltar o foco para a aba do navegador
+  window.addEventListener('focus', handleWindowFocus);
+  window.addEventListener('keydown', handleKeyDown);
+  updateClock();
+  clockTimer = setInterval(updateClock, 1000);
+});
+
+onUnmounted(() => {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  if (secondsTimer) clearInterval(secondsTimer);
+  window.removeEventListener('focus', handleWindowFocus);
+  window.removeEventListener('keydown', handleKeyDown);
+  if (clockTimer) clearInterval(clockTimer);
+  if (tvProgressTimer) clearInterval(tvProgressTimer);
 });
 </script>
 
 <template>
-  <div class="p-3.5 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors no-scrollbar">
+  <div class="p-3.5 sm:p-6 lg:p-8 space-y-6 max-w-[1750px] w-full mx-auto font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors no-scrollbar">
 
     <!-- ============================================== -->
     <!-- TOP HEADER: CONTROL ROOM & INSTANT ACTIONS    -->
@@ -365,6 +744,16 @@ onMounted(() => {
           <span>+ Venda Frigobar</span>
         </button>
 
+        <!-- 📺 Modo TV / Kiosk -->
+        <button 
+          @click="toggleTvMode()"
+          class="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-600 dark:text-amber-400 font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-xs active:scale-95"
+          title="Ativar Modo TV em tela cheia para recepção"
+        >
+          <Tv class="w-4 h-4 text-amber-500" />
+          <span>Modo TV</span>
+        </button>
+
         <!-- Novo Agendamento -->
         <button 
           @click="goToAppointments(true)"
@@ -374,15 +763,19 @@ onMounted(() => {
           <span>+ Novo Agendamento</span>
         </button>
 
-        <!-- Sincronizar -->
-        <button 
-          @click="loadData(true)" 
-          :disabled="refreshing"
-          class="p-2.5 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shadow-xs"
-          title="Sincronizar métricas agora"
-        >
-          <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': refreshing }" />
-        </button>
+        <!-- Sincronizar & Status de Tempo Real -->
+        <div class="flex items-center gap-1.5 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-1 shadow-xs">
+          <button 
+            @click="loadData(true)" 
+            :disabled="refreshing"
+            class="flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-200 font-bold text-xs transition cursor-pointer"
+            title="Clique para sincronizar manualmente agora"
+          >
+            <RefreshCw class="w-3.5 h-3.5" :class="{ 'animate-spin': refreshing }" />
+            <span class="font-mono text-[11px]">{{ secondsSinceUpdate }}s</span>
+          </button>
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse mr-2 hidden sm:inline-block" title="Conexão ao vivo com o banco MySQL"></span>
+        </div>
       </div>
     </div>
 
@@ -401,6 +794,43 @@ onMounted(() => {
     <!-- MAIN COCKPIT VIEW -->
     <template v-else-if="metrics">
       
+      <!-- ============================================================== -->
+      <!-- SELETOR DE PERÍODO (HOJE / ESTA SEMANA / ESTE MÊS)             -->
+      <!-- ============================================================== -->
+      <div class="flex items-center justify-between flex-wrap gap-3 bg-white dark:bg-[#0e131d]/90 border border-slate-200/90 dark:border-white/[0.08] p-2 sm:p-2.5 rounded-3xl shadow-xs">
+        <div class="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+          <button 
+            @click="selectPeriod('today')"
+            class="px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5"
+            :class="selectedPeriod === 'today' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+          >
+            <span>Hoje</span>
+            <span v-if="selectedPeriod === 'today'" class="w-1.5 h-1.5 rounded-full bg-slate-950 animate-pulse"></span>
+          </button>
+          <button 
+            @click="selectPeriod('week')"
+            class="px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5"
+            :class="selectedPeriod === 'week' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+          >
+            <span>Esta Semana</span>
+            <span v-if="selectedPeriod === 'week'" class="w-1.5 h-1.5 rounded-full bg-slate-950 animate-pulse"></span>
+          </button>
+          <button 
+            @click="selectPeriod('month')"
+            class="px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5"
+            :class="selectedPeriod === 'month' ? 'bg-amber-500 text-slate-950 shadow-md' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+          >
+            <span>Este Mês</span>
+            <span v-if="selectedPeriod === 'month'" class="w-1.5 h-1.5 rounded-full bg-slate-950 animate-pulse"></span>
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2 pr-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          <span>Período Ativo: <strong class="text-slate-900 dark:text-white font-bold">{{ selectedPeriod === 'today' ? 'Hoje (Ao Vivo)' : (selectedPeriod === 'week' ? 'Semana Atual' : 'Mês de Outubro') }}</strong></span>
+        </div>
+      </div>
+
       <!-- ============================================== -->
       <!-- 5 LUXURY METRIC CARDS (REAL-TIME AGGREGATION) -->
       <!-- ============================================== -->
@@ -420,13 +850,13 @@ onMounted(() => {
             </div>
             <div class="mt-2.5">
               <span class="text-2xl sm:text-3xl font-black font-mono-num text-slate-900 dark:text-white block tracking-tight">
-                {{ formatCurrency(metrics.today?.totalRevenue || 0) }}
+                {{ formatCurrency(displayedRevenue) }}
               </span>
             </div>
           </div>
           <div class="mt-3 pt-2.5 border-t border-slate-100 dark:border-white/5 flex items-center justify-between text-[10px] font-mono-num text-slate-600 dark:text-slate-400">
-            <span>✂️ Cortes: {{ formatCurrency(metrics.today?.servicesRevenue || 0) }}</span>
-            <span class="text-emerald-600 dark:text-emerald-400 font-bold">🍺 Frigobar: {{ formatCurrency(metrics.today?.productsRevenue || 0) }}</span>
+            <span>✂️ Cortes: {{ formatCurrency(displayedServicesRevenue) }}</span>
+            <span class="text-emerald-600 dark:text-emerald-400 font-bold">🍺 Frigobar: {{ formatCurrency(displayedProductsRevenue) }}</span>
           </div>
         </div>
 
@@ -443,12 +873,12 @@ onMounted(() => {
             </div>
             <div class="mt-2.5">
               <span class="text-2xl sm:text-3xl font-black font-mono-num text-emerald-600 dark:text-emerald-400 block tracking-tight">
-                {{ formatCurrency(metrics.today?.barberShare || 0) }}
+                {{ formatCurrency(displayedBarberShare) }}
               </span>
             </div>
           </div>
           <div class="mt-3 pt-2.5 border-t border-slate-100 dark:border-white/5 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-            <span>Lucro Casa: <strong class="text-slate-900 dark:text-white font-mono-num">{{ formatCurrency(metrics.today?.salonNetShare || 0) }}</strong></span>
+            <span>Lucro Casa: <strong class="text-slate-900 dark:text-white font-mono-num">{{ formatCurrency(displayedSalonShare) }}</strong></span>
             <span class="text-emerald-500 font-semibold">Sem Bitributação</span>
           </div>
         </div>
@@ -461,19 +891,19 @@ onMounted(() => {
                 <Calendar class="w-3.5 h-3.5 text-sky-500" /> Atendimentos
               </span>
               <span class="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
-                {{ metrics.today?.onlinePixPercentage || 75 }}% Online
+                {{ metrics?.today?.onlinePixPercentage || 75 }}% Online
               </span>
             </div>
             <div class="mt-2.5 flex items-baseline gap-2">
               <span class="text-2xl sm:text-3xl font-black font-mono-num text-slate-900 dark:text-white">
-                {{ metrics.today?.totalAppointments || 0 }}
+                {{ metrics?.today?.totalAppointments || 0 }}
               </span>
               <span class="text-xs text-slate-400 font-medium">cortes hoje</span>
             </div>
           </div>
           <div class="mt-3 pt-2.5 border-t border-slate-100 dark:border-white/5 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-            <span class="text-emerald-600 dark:text-emerald-400 font-bold">{{ metrics.today?.completedAppointments || 0 }} Concluídos</span>
-            <span>{{ metrics.today?.confirmedAppointments || 0 }} Agendados</span>
+            <span class="text-emerald-600 dark:text-emerald-400 font-bold">{{ metrics?.today?.completedAppointments || 0 }} Concluídos</span>
+            <span>{{ metrics?.today?.confirmedAppointments || 0 }} Agendados</span>
           </div>
         </div>
 
@@ -490,7 +920,7 @@ onMounted(() => {
             </div>
             <div class="mt-2.5">
               <span class="text-xl sm:text-2xl font-black font-mono-num text-slate-900 dark:text-white block tracking-tight">
-                {{ formatCurrency(metrics.today?.averageTicket || 0) }}
+                {{ formatCurrency(displayedAverageTicket) }}
               </span>
             </div>
           </div>
@@ -553,51 +983,72 @@ onMounted(() => {
         <!-- GRID ADAPTATIVO: Se tiver 1 cadeira, usa layout HERO + FRIGOBAR EXPRESS -->
         <div 
           class="grid grid-cols-1 gap-4"
-          :class="(metrics.chairs?.length || 0) <= 1 ? 'lg:grid-cols-12' : (metrics.chairs?.length === 2 ? 'md:grid-cols-2' : 'md:grid-cols-2 lg:grid-cols-3')"
+          :class="(metrics?.chairs?.length || 0) <= 1 ? 'lg:grid-cols-12' : (metrics?.chairs?.length === 2 ? 'md:grid-cols-2' : (metrics?.chairs?.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2 xl:grid-cols-4'))"
         >
-          <!-- Cadeira(s) Operacionais -->
+          <!-- Cadeira(s) Operacionais com Status 100% no Topo -->
           <div 
-            v-for="chair in (metrics.chairs || [])" 
+            v-for="chair in (metrics?.chairs || [])" 
             :key="chair.barberId"
-            class="rounded-3xl p-5 border transition-all flex flex-col justify-between shadow-xs"
+            class="rounded-3xl border transition-all flex flex-col justify-between shadow-xs overflow-hidden group"
             :class="[
-              (metrics.chairs?.length || 0) <= 1 ? 'lg:col-span-7' : '',
+              (metrics?.chairs?.length || 0) <= 1 ? 'lg:col-span-7' : '',
               chair.status === 'OCCUPIED' 
                 ? 'bg-amber-500/[0.03] dark:bg-amber-500/[0.08] border-amber-400/80 dark:border-amber-500/40 ring-1 ring-amber-400/30' 
                 : 'bg-white dark:bg-[#0e131d]/90 border-slate-200/90 dark:border-white/[0.08] hover:border-slate-300 dark:hover:border-white/20'
             ]"
           >
-            <!-- Topo da Cadeira -->
-            <div>
-              <div class="flex items-center justify-between pb-3.5 border-b border-slate-100 dark:border-white/5">
-                <div class="flex items-center gap-3">
-                  <div class="relative w-12 h-12 rounded-2xl overflow-hidden ring-2 bg-slate-200 dark:bg-black/50 shrink-0" :class="chair.status === 'OCCUPIED' ? 'ring-amber-500' : 'ring-slate-300 dark:ring-white/10'">
-                    <img v-if="chair.avatarUrl" :src="chair.avatarUrl" class="w-full h-full object-cover" />
-                    <div v-else class="w-full h-full flex items-center justify-center font-black text-sm bg-amber-500 text-slate-950">
-                      {{ chair.nickname.charAt(0) }}
+            <!-- 100% Full-Width Status Header Bar -->
+            <div 
+              class="w-full px-5 py-3 flex items-center justify-between border-b transition-colors"
+              :class="[
+                chair.status === 'OCCUPIED'
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 border-amber-500/30 font-black shadow-xs'
+                  : chair.status === 'BREAK'
+                    ? 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30 font-black'
+                    : chair.status === 'CLEANING'
+                      ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30 font-black'
+                      : 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 font-black'
+              ]"
+            >
+              <span class="flex items-center gap-2 text-xs uppercase tracking-wider">
+                <span class="w-2.5 h-2.5 rounded-full" :class="[
+                  chair.status === 'OCCUPIED' ? 'bg-slate-950 animate-ping' :
+                  chair.status === 'BREAK' ? 'bg-sky-500' :
+                  chair.status === 'CLEANING' ? 'bg-purple-500' :
+                  'bg-emerald-500 animate-pulse'
+                ]"></span>
+                <span>{{ chair.statusLabel || (chair.status === 'OCCUPIED' ? 'Em Atendimento' : (chair.status === 'BREAK' ? '☕ Em Almoço / Pausa' : (chair.status === 'CLEANING' ? '🧹 Limpeza de Bancada' : 'Disponível • Livre'))) }}</span>
+              </span>
+              <span class="text-xs font-mono font-bold" :class="chair.status === 'OCCUPIED' ? 'text-slate-950' : 'text-slate-500 dark:text-slate-400'">
+                {{ chair.chair }}
+              </span>
+            </div>
+
+            <!-- Corpo da Cadeira -->
+            <div class="p-5 flex-1 flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between pb-3.5 border-b border-slate-100 dark:border-white/5">
+                  <div class="flex items-center gap-3">
+                    <div class="relative w-12 h-12 rounded-2xl overflow-hidden ring-2 bg-slate-200 dark:bg-black/50 shrink-0" :class="chair.status === 'OCCUPIED' ? 'ring-amber-500' : 'ring-slate-300 dark:ring-white/10'">
+                      <img v-if="chair.avatarUrl" :src="chair.avatarUrl" class="w-full h-full object-cover" />
+                      <div v-else class="w-full h-full flex items-center justify-center font-black text-sm bg-amber-500 text-slate-950">
+                        {{ chair.nickname.charAt(0) }}
+                      </div>
+                    </div>
+                    <div>
+                      <h3 class="font-black text-slate-900 dark:text-white text-sm sm:text-base leading-tight">
+                        {{ chair.nickname }}
+                      </h3>
+                      <span class="text-xs text-slate-500 dark:text-slate-400 font-medium block mt-0.5">
+                        {{ chair.commissionRate }}% comissão
+                      </span>
                     </div>
                   </div>
-                  <div>
-                    <h3 class="font-black text-slate-900 dark:text-white text-sm sm:text-base leading-tight">
-                      {{ chair.nickname }}
-                    </h3>
-                    <span class="text-xs text-slate-500 dark:text-slate-400 font-medium block mt-0.5">
-                      {{ chair.chair }} • {{ chair.commissionRate }}% comissão
-                    </span>
-                  </div>
-                </div>
 
-                <!-- Status Badge -->
-                <span 
-                  class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5"
-                  :class="chair.status === 'OCCUPIED' 
-                    ? 'bg-amber-500 text-slate-950 shadow-xs animate-pulse' 
-                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'"
-                >
-                  <CircleDot class="w-3 h-3" />
-                  <span>{{ chair.status === 'OCCUPIED' ? 'Em Cadeira' : 'Disponível' }}</span>
-                </span>
-              </div>
+                  <span class="text-xs font-semibold px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10">
+                    {{ chair.chair }}
+                  </span>
+                </div>
 
               <!-- Meio: Se Ocupada (Detalhes do Corte em Andamento) -->
               <div v-if="chair.status === 'OCCUPIED' && chair.currentAppointment" class="mt-4 space-y-3">
@@ -663,7 +1114,7 @@ onMounted(() => {
             </div>
 
             <!-- Rodapé da Cadeira: Ações Rápidas -->
-            <div class="mt-4 pt-3.5 border-t border-slate-100 dark:border-white/5 flex items-center justify-between gap-2.5">
+            <div class="mt-4 pt-3.5 border-t border-slate-100 dark:border-white/5 space-y-2">
               <button 
                 v-if="chair.status === 'OCCUPIED'"
                 @click="goToAppointments()"
@@ -674,19 +1125,44 @@ onMounted(() => {
               </button>
 
               <button 
-                v-else
-                @click="goToAppointments(true)"
-                class="w-full py-2.5 px-4 rounded-2xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 text-slate-800 dark:text-slate-200 font-bold text-xs transition cursor-pointer active:scale-95 flex items-center justify-center gap-2"
+                v-else-if="chair.status === 'BREAK' || chair.status === 'CLEANING'"
+                @click="changeChairStatus(chair.barberId, 'AVAILABLE')"
+                class="w-full py-2.5 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-md shadow-emerald-500/20 active:scale-95 flex items-center justify-center gap-2"
               >
-                <Plus class="w-4 h-4" />
-                <span>Iniciar Encaixe de Balcão</span>
+                <CheckCircle2 class="w-4 h-4 stroke-[3]" />
+                <span>🟢 Retomar Cadeira (Disponível)</span>
               </button>
+
+              <div v-else class="flex items-center gap-2">
+                <button 
+                  @click="goToAppointments(true)"
+                  class="flex-1 py-2.5 px-3 rounded-2xl bg-slate-100 dark:bg-white/10 hover:bg-slate-200 dark:hover:bg-white/15 text-slate-800 dark:text-slate-200 font-bold text-xs transition cursor-pointer active:scale-95 flex items-center justify-center gap-1.5"
+                >
+                  <Plus class="w-3.5 h-3.5" />
+                  <span>Encaixe</span>
+                </button>
+                <button 
+                  @click="changeChairStatus(chair.barberId, 'BREAK')"
+                  class="px-3 py-2.5 rounded-2xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-600 dark:text-sky-400 font-bold text-xs border border-sky-500/20 transition cursor-pointer"
+                  title="Pausa / Almoço"
+                >
+                  ☕ Pausa
+                </button>
+                <button 
+                  @click="changeChairStatus(chair.barberId, 'CLEANING')"
+                  class="px-3 py-2.5 rounded-2xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 font-bold text-xs border border-purple-500/20 transition cursor-pointer"
+                  title="Limpeza de Bancada"
+                >
+                  🧹 Limpeza
+                </button>
+              </div>
+            </div>
             </div>
           </div>
 
           <!-- SE FOR 1 CADEIRA: FRIGOBAR EXPRESS AO LADO (Preenche os 5 cols restantes) -->
           <div 
-            v-if="(metrics.chairs?.length || 0) <= 1"
+            v-if="(metrics?.chairs?.length || 0) <= 1"
             class="lg:col-span-5 bg-white dark:bg-[#0e131d]/90 border border-slate-200/90 dark:border-white/[0.08] rounded-3xl p-5 shadow-xs flex flex-col justify-between"
           >
             <div>
@@ -1226,5 +1702,395 @@ onMounted(() => {
       </div>
     </div>
 
+
+    <!-- ============================================== -->
+    <!-- RECURSO: MODO TV / PAINEL KIOSK DE ALTA RESOLUÇÃO -->
+    <Teleport to="body">
+      <div 
+        v-if="isTvMode && metrics" 
+        class="fixed inset-0 z-[9999] bg-[#05070f] text-slate-100 flex flex-col p-4 sm:p-5 lg:p-6 font-sans antialiased overflow-hidden select-none"
+      >
+        <!-- TOPO DO MODO TV LOUNGE -->
+        <div class="flex items-center justify-between pb-3.5 border-b border-white/10 shrink-0">
+          <div class="flex items-center gap-3.5">
+            <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 font-black flex items-center justify-center text-lg shadow-lg shadow-amber-500/25">
+              88
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h1 class="text-lg sm:text-xl font-black text-white tracking-tight uppercase">
+                  {{ authStore.organization?.name || 'Atelier 88 Barber Lounge' }}
+                </h1>
+                <span class="px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  PAINEL DO LOUNGE AO VIVO
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-400 uppercase tracking-widest mt-0.5 font-medium">
+                Monitoramento de Cadeiras &amp; Mídia Indoor em Vídeo
+              </p>
+            </div>
+          </div>
+
+          <!-- Relógio Digital Central Gigante -->
+          <div class="hidden md:flex flex-col items-center">
+            <span class="font-mono text-3xl lg:text-4xl font-black text-amber-400 tracking-wider">
+              {{ currentClock }}
+            </span>
+            <span class="text-xs text-slate-400 uppercase font-medium mt-0.5">
+              {{ currentDateFormatted }}
+            </span>
+          </div>
+
+          <!-- Ações do Topo: Pausa, Sincronização e Sair -->
+          <div class="flex items-center gap-3">
+            <button 
+              @click="toggleTvPause()"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer"
+              :class="isTvPaused ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md' : 'bg-white/10 hover:bg-white/20 text-slate-300 border-white/10'"
+              :title="isTvPaused ? 'Retomar carrossel' : 'Pausar slide para escanear QR Code'"
+            >
+              <Pause v-if="!isTvPaused" class="w-3.5 h-3.5 text-amber-400" />
+              <Play v-else class="w-3.5 h-3.5" />
+              <span>{{ isTvPaused ? 'Pausado' : 'Pausar' }}</span>
+            </button>
+
+            <span class="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20 hidden lg:inline-flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+              Sincronizado ao Vivo
+            </span>
+
+            <button 
+              @click="toggleTvMode()"
+              class="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-rose-500 hover:text-white text-slate-300 font-bold text-xs uppercase tracking-wider transition cursor-pointer border border-white/10"
+              title="Pressione ESC para sair"
+            >
+              <Minimize2 class="w-3.5 h-3.5" />
+              <span>Sair (ESC)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- CORPO PRINCIPAL: 28% CADEIRAS / 72% MÍDIA INDOOR GIGANTE -->
+        <div class="flex-1 flex flex-col lg:flex-row gap-5 mt-4 min-h-0 overflow-hidden">
+
+          <!-- ============================================================== -->
+          <!-- LADO ESQUERDO (~28%): CADEIRAS EM ATENDIMENTO + FILA DE ESPERA -->
+          <!-- ============================================================== -->
+          <div class="w-full lg:w-[28%] xl:w-[26%] shrink-0 flex flex-col justify-between space-y-3.5 min-h-0 overflow-hidden">
+
+            <!-- HEADER DA SEÇÃO DE CADEIRAS -->
+            <div class="flex items-center justify-between shrink-0">
+              <span class="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                <Scissors class="w-4 h-4 text-amber-400" />
+                <span>Cadeiras &amp; Atendimentos</span>
+              </span>
+              <span class="text-[11px] font-mono text-slate-400">
+                {{ (metrics?.chairs || []).length }} Cadeiras
+              </span>
+            </div>
+
+            <!-- LISTA VERTICAL DE CADEIRAS (COMPACTA, ROBUSTA E SEM VÃO VAZIO) -->
+            <div class="flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto no-scrollbar">
+              <div 
+                v-for="chair in (metrics?.chairs || [])" 
+                :key="'tv_' + chair.barberId"
+                class="rounded-3xl border overflow-hidden shadow-xl transition-all flex flex-col justify-between shrink-0"
+                :class="[
+                  chair.status === 'OCCUPIED'
+                    ? 'bg-[#121622] border-amber-500/60 ring-1 ring-amber-500/30'
+                    : chair.status === 'BREAK'
+                      ? 'bg-[#0f1522] border-sky-500/40'
+                      : chair.status === 'CLEANING'
+                        ? 'bg-[#131122] border-purple-500/40'
+                        : 'bg-[#0e1320] border-white/10'
+                ]"
+              >
+                <!-- Barra Superior de Status 100% Colorida -->
+                <div 
+                  class="w-full px-3.5 py-2 flex items-center justify-between border-b shrink-0"
+                  :class="[
+                    chair.status === 'OCCUPIED'
+                      ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black'
+                      : chair.status === 'BREAK'
+                        ? 'bg-sky-500/20 text-sky-400 border-sky-500/30 font-black'
+                        : chair.status === 'CLEANING'
+                          ? 'bg-purple-500/20 text-purple-400 border-purple-500/30 font-black'
+                          : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 font-black'
+                  ]"
+                >
+                  <span class="flex items-center gap-1.5 text-xs uppercase tracking-wider font-extrabold">
+                    <span class="w-2 h-2 rounded-full" :class="chair.status === 'OCCUPIED' ? 'bg-slate-950 animate-ping' : 'bg-emerald-400 animate-pulse'"></span>
+                    <span>{{ chair.statusLabel || (chair.status === 'OCCUPIED' ? 'Em Atendimento' : 'Disponível • Livre') }}</span>
+                  </span>
+                  <span class="text-xs font-mono font-black">{{ chair.chair }}</span>
+                </div>
+
+                <!-- Conteúdo da Cadeira -->
+                <div class="p-3.5 space-y-3">
+                  <!-- Linha do Barbeiro -->
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2.5 truncate">
+                      <div class="w-10 h-10 rounded-2xl overflow-hidden ring-2 bg-slate-800 shrink-0" :class="chair.status === 'OCCUPIED' ? 'ring-amber-500' : 'ring-white/20'">
+                        <img v-if="chair.avatarUrl" :src="chair.avatarUrl" class="w-full h-full object-cover" />
+                        <div v-else class="w-full h-full flex items-center justify-center font-black text-base bg-amber-500 text-slate-950">
+                          {{ chair.nickname.charAt(0) }}
+                        </div>
+                      </div>
+                      <div class="truncate">
+                        <h3 class="text-sm font-black text-white leading-tight truncate">{{ chair.nickname }}</h3>
+                        <span class="text-[11px] text-slate-400 block mt-0.5 truncate">{{ chair.chair }}</span>
+                      </div>
+                    </div>
+
+                    <span 
+                      class="px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border shrink-0"
+                      :class="chair.status === 'OCCUPIED' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'"
+                    >
+                      {{ chair.status === 'OCCUPIED' ? 'Ocupado' : 'Livre' }}
+                    </span>
+                  </div>
+
+                  <!-- Detalhes do Corte (se ocupado) -->
+                  <div v-if="chair.status === 'OCCUPIED' && chair.currentAppointment" class="p-3 rounded-2xl bg-black/60 border border-white/10 space-y-2 shadow-inner">
+                    <div class="flex items-center justify-between">
+                      <span class="font-black text-white text-xs truncate max-w-[140px]">
+                        {{ chair.currentAppointment.clientName }}
+                      </span>
+                      <span v-if="chair.currentAppointment.isVipMember" class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase bg-amber-500 text-slate-950 shrink-0">
+                        VIP
+                      </span>
+                    </div>
+
+                    <span class="text-[11px] text-amber-300 font-semibold block truncate">
+                      {{ chair.currentAppointment.serviceName }}
+                    </span>
+
+                    <!-- Barra de Progresso do Atendimento -->
+                    <div class="space-y-1 pt-1 border-t border-white/10">
+                      <div class="flex items-center justify-between text-[10px] font-mono">
+                        <span class="text-slate-400">Decorrido: {{ chair.currentAppointment.elapsedMinutes }} min</span>
+                        <span class="text-amber-400 font-bold">
+                          {{ formatRemainingMinutes(chair.currentAppointment.remainingMinutes) }}
+                        </span>
+                      </div>
+                      <div class="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div 
+                          class="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-300"
+                          :style="{ width: `${chair.currentAppointment.progressPercent}%` }"
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Se em Pausa -->
+                  <div v-else-if="chair.status === 'BREAK'" class="p-3 rounded-2xl bg-sky-500/10 border border-sky-500/20 text-center py-2.5">
+                    <span class="text-lg block mb-0.5">☕</span>
+                    <span class="text-xs text-sky-300 font-bold block">Pausa / Almoço</span>
+                    <span class="text-[10px] text-slate-400 block mt-0.5">Retornando em breve</span>
+                  </div>
+
+                  <!-- Se em Limpeza -->
+                  <div v-else-if="chair.status === 'CLEANING'" class="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-center py-2.5">
+                    <span class="text-lg block mb-0.5">🧹</span>
+                    <span class="text-xs text-purple-300 font-bold block">Limpeza &amp; Higienização</span>
+                    <span class="text-[10px] text-slate-400 block mt-0.5">Preparando bancada</span>
+                  </div>
+
+                  <!-- Se Livre -->
+                  <div v-else class="p-3 rounded-2xl bg-black/30 border border-dashed border-white/10 text-center py-2.5">
+                    <Scissors class="w-4 h-4 text-slate-500 mx-auto mb-1 opacity-60" />
+                    <span class="text-xs text-slate-300 font-bold block">Pronto para Encaixe</span>
+                    <span class="text-[10px] text-slate-500 block mt-0.5">Atendimento imediato</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- FILA DE ESPERA (RODAPÉ DA SEÇÃO DE CADEIRAS) -->
+            <div class="p-3 rounded-3xl bg-[#0e1320] border border-white/10 space-y-2 shrink-0">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Clock class="w-3.5 h-3.5 text-sky-400" />
+                  <span>Próximos a Serem Atendidos</span>
+                </span>
+                <span class="text-[10px] text-slate-400">Horários</span>
+              </div>
+
+              <div v-if="upcomingQueue.length > 0" class="space-y-1.5">
+                <div 
+                  v-for="(item, idx) in upcomingQueue.slice(0, 3)" 
+                  :key="'queue_' + item.id"
+                  class="p-2 rounded-2xl bg-black/50 border border-white/10 flex items-center justify-between gap-2 hover:border-amber-500/40 transition"
+                >
+                  <div class="truncate min-w-0">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-[8px] font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 uppercase shrink-0">
+                        #{{ idx + 1 }}
+                      </span>
+                      <span class="text-xs font-bold text-white truncate">{{ item.clientName }}</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 block truncate mt-0.5">{{ item.serviceName }}</span>
+                  </div>
+                  <span class="font-mono text-xs font-black text-amber-400 shrink-0">
+                    {{ item.time }}
+                  </span>
+                </div>
+              </div>
+
+              <div v-else class="py-2 text-center text-xs text-slate-500">
+                Nenhum agendamento pendente na fila.
+              </div>
+            </div>
+
+          </div>
+
+          <!-- ============================================================== -->
+          <!-- LADO DIREITO (~72%): MEGA PAINEL CINEMATOGRÁFICO DE MÍDIA    -->
+          <!-- ============================================================== -->
+          <div class="w-full lg:w-[72%] xl:w-[74%] flex-1 flex flex-col justify-between rounded-3xl bg-gradient-to-b from-[#111726] to-[#070b13] border border-amber-500/40 p-5 sm:p-6 shadow-2xl relative overflow-hidden min-h-0">
+
+            <!-- TOPO DO ANÚNCIO (BADGE DE CATEGORIA, LIVE STATUS E TAG DE PREÇO) -->
+            <div class="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+              <div class="flex items-center gap-2">
+                <span class="px-3.5 py-1.5 rounded-2xl text-xs font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1.5 shadow-sm">
+                  <Sparkles class="w-3.5 h-3.5 text-amber-400" />
+                  <span>{{ currentAd?.category || 'PARCEIRO LOCAL' }}</span>
+                </span>
+
+                <span 
+                  v-if="currentAd?.mediaType === 'VIDEO' && !videoErrorMap[currentAd.id]"
+                  class="px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider bg-rose-500/90 text-white flex items-center gap-1.5 shadow-sm"
+                >
+                  <span class="w-2 h-2 rounded-full bg-white animate-pulse"></span>
+                  <span>VÍDEO AO VIVO</span>
+                </span>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <span 
+                  v-if="currentAd?.priceTag"
+                  class="px-4 py-1.5 rounded-2xl text-xs sm:text-base font-black uppercase tracking-wider bg-amber-500 text-slate-950 shadow-lg border border-amber-400 flex items-center gap-2"
+                >
+                  <Tag class="w-4 h-4" />
+                  <span>{{ currentAd.priceTag }}</span>
+                </span>
+                <span class="text-xs font-mono font-bold text-slate-400 bg-black/40 px-2.5 py-1 rounded-xl border border-white/5">
+                  Slide {{ activeTvSlide + 1 }}/{{ activeSlides.length }}
+                </span>
+              </div>
+            </div>
+
+            <!-- HERO THEATER: VÍDEO OU FOTO GIGANTE EM ESCALA ULTRA-WIDE -->
+            <div class="relative flex-1 rounded-3xl overflow-hidden my-3 border border-white/15 shadow-2xl bg-black flex items-center justify-center group min-h-[300px]">
+              <!-- Imagem Base (Sempre Carregada como Garantia Visual) -->
+              <img 
+                :key="'img_fallback_' + currentAd?.id"
+                :src="currentAd?.imageUrl || 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=900&auto=format&fit=crop'"
+                class="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                onerror="this.src='https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=900&auto=format&fit=crop'"
+              />
+
+              <!-- Player de Vídeo em Loop (Sobreposto com som mutado) -->
+              <video 
+                v-if="currentAd?.mediaType === 'VIDEO' && currentAd?.videoUrl && !videoErrorMap[currentAd.id]"
+                :key="'tv_vid_' + currentAd.id"
+                :src="currentAd.videoUrl"
+                :poster="currentAd.imageUrl"
+                autoplay
+                muted
+                loop
+                playsinline
+                @error="handleVideoError(currentAd.id)"
+                class="absolute inset-0 w-full h-full object-cover z-10"
+              ></video>
+
+              <!-- Gradiente de Vinheta Escuro Suave -->
+              <div class="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/30 pointer-events-none z-10"></div>
+
+              <!-- Setas de Navegação Manual no Hover -->
+              <button 
+                @click="prevTvSlide()"
+                class="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-black/70 hover:bg-amber-500 hover:text-slate-950 text-white flex items-center justify-center backdrop-blur-md opacity-0 group-hover:opacity-100 transition duration-200 cursor-pointer shadow-2xl border border-white/20"
+                title="Anúncio anterior"
+              >
+                <ChevronLeft class="w-6 h-6" />
+              </button>
+
+              <button 
+                @click="nextTvSlide()"
+                class="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-12 h-12 rounded-full bg-black/70 hover:bg-amber-500 hover:text-slate-950 text-white flex items-center justify-center backdrop-blur-md opacity-0 group-hover:opacity-100 transition duration-200 cursor-pointer shadow-2xl border border-white/20"
+                title="Próximo anúncio"
+              >
+                <ChevronRight class="w-6 h-6" />
+              </button>
+            </div>
+
+            <!-- CARD DO ANUNCIANTE & QR CODE GIGANTE DE ALTO CONTRASTE -->
+            <div class="p-4 sm:p-5 rounded-3xl bg-black/85 border border-white/15 backdrop-blur-2xl flex items-center justify-between gap-6 shrink-0 shadow-2xl">
+              <div class="space-y-1.5 flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="w-3 h-3 rounded-full bg-amber-400 animate-ping shrink-0"></span>
+                  <h2 class="text-2xl sm:text-3xl lg:text-4xl font-black uppercase text-white truncate drop-shadow-md tracking-tight">
+                    {{ currentAd?.title }}
+                  </h2>
+                </div>
+                <p class="text-sm sm:text-base text-slate-200 font-medium line-clamp-2 leading-relaxed">
+                  {{ currentAd?.subtitle }}
+                </p>
+                <div class="flex items-center gap-2 pt-1 text-xs text-amber-400 font-semibold">
+                  <span>📲 Aponte a câmera do celular para resgatar este benefício</span>
+                  <span class="text-slate-400 font-mono text-xs hidden md:inline">• {{ currentAd?.targetUrl || 'barblyclub.com.br' }}</span>
+                </div>
+              </div>
+
+              <!-- Bloco do QR Code Gigante -->
+              <div class="flex flex-col items-center gap-1.5 shrink-0">
+                <div class="w-28 h-28 sm:w-36 sm:h-36 bg-white p-2.5 rounded-2xl shadow-2xl ring-2 ring-amber-500/60 flex items-center justify-center hover:scale-105 transition-transform">
+                  <img 
+                    :src="`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(currentAd?.targetUrl || 'https://barblyclub.com.br')}&bgcolor=ffffff&color=060911&margin=4`"
+                    alt="QR Code"
+                    class="w-full h-full object-contain"
+                  />
+                </div>
+                <span class="text-[10px] font-bold text-amber-300 uppercase tracking-wider text-center max-w-[140px] truncate">
+                  {{ currentAd?.qrCodeLabel || 'Escanear Benefício' }}
+                </span>
+              </div>
+            </div>
+
+            <!-- RODAPÉ: BARRA DE PROGRESSO, PONTOS E CHAMADA COMERCIAL -->
+            <div class="pt-3.5 border-t border-white/10 space-y-2.5 shrink-0">
+              <!-- Barra de Progresso Dourada Suave -->
+              <div class="w-full h-2 rounded-full bg-white/10 overflow-hidden">
+                <div 
+                  class="h-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-300 rounded-full transition-all duration-100 ease-linear"
+                  :style="{ width: `${slideProgress}%` }"
+                ></div>
+              </div>
+
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-slate-300 flex items-center gap-2">
+                  <Sparkles class="w-4 h-4 text-amber-400" />
+                  <span>{{ tvSettings?.tvFooterText || 'Quer anunciar sua empresa nesta TV? Fale com a recepção da barbearia' }}<span v-if="tvSettings?.tvWhatsAppContact" class="text-amber-400 font-bold ml-1.5">• WhatsApp: {{ tvSettings.tvWhatsAppContact }}</span></span>
+                </span>
+
+                <div class="flex items-center gap-1.5">
+                  <button 
+                    v-for="(item, idx) in activeSlides" 
+                    :key="'dot_' + idx"
+                    @click="selectTvSlide(idx)"
+                    class="w-2.5 h-2.5 rounded-full transition-all cursor-pointer"
+                    :class="activeTvSlide === idx ? 'w-7 bg-amber-400 shadow-md' : 'bg-white/30 hover:bg-white/50'"
+                  ></button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

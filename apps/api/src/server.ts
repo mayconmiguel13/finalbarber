@@ -13,6 +13,7 @@ import { whatsappRoutes } from './routes/whatsapp.js';
 import { asaasRoutes } from './routes/asaas.js';
 import { galleryRoutes } from './routes/gallery.js';
 import { financialRoutes } from './routes/financial.js';
+import { tvAdsRoutes } from './routes/tvAds.js';
 import { initDefaultData } from './seed.js';
 import { notificationScheduler } from './services/notificationScheduler.js';
 
@@ -42,6 +43,7 @@ async function bootstrap() {
   await app.register(asaasRoutes, { prefix: '/api' });
   await app.register(galleryRoutes, { prefix: '/api' });
   await app.register(financialRoutes, { prefix: '/api' });
+  await app.register(tvAdsRoutes, { prefix: '/api' });
 
   // Garantir dados padrão no banco de dados na inicialização
   initDefaultData().catch((err) => {

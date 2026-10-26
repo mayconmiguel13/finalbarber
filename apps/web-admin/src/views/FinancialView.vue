@@ -1710,7 +1710,7 @@ onMounted(() => {
                 class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
               >
                 <option value="Serviço" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Serviço de Barbearia</option>
-                <option value="Venda Produto" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Venda de Produto</option>
+                <option value="Venda de Produto" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Venda de Produto</option>
                 <option value="Repasse Barbeiro" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Repasse Salão-Parceiro</option>
                 <option value="Aluguel" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Aluguel &amp; Condomínio</option>
                 <option value="Energia & Água" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Energia &amp; Água</option>
