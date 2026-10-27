@@ -1103,6 +1103,116 @@ function getComandaQuantity(prodId: string): number {
   return found ? found.quantity : 0;
 }
 
+const isGeneratingPix = ref(false);
+const pixData = ref<any>(null);
+const pixPollingTimer = ref<any>(null);
+const isPixConfirmed = ref(false);
+const pixMode = ref<'DYNAMIC' | 'MANUAL'>('DYNAMIC');
+
+async function generateDynamicPix() {
+  if (!selectedAptForCheckout.value) return;
+  isGeneratingPix.value = true;
+  playPopSound();
+  try {
+    const consumedPayload = consumedProductsList.value.map(item => ({
+      productId: item.product.id,
+      quantity: item.quantity,
+    }));
+
+    const res = await api.generateAppointmentPixCheckout(selectedAptForCheckout.value.id, {
+      discount: checkoutDiscount.value,
+      consumedProducts: consumedPayload.length > 0 ? consumedPayload : undefined,
+    });
+
+    pixData.value = res.pix;
+    isPixConfirmed.value = false;
+    startPixPolling(res.pix.paymentId);
+    toast.success('Cobrança Pix dinâmicamente gerada com split!');
+  } catch (err: any) {
+    toast.error(err.message || 'Erro ao gerar Pix dinâmico.');
+  } finally {
+    isGeneratingPix.value = false;
+  }
+}
+
+function startPixPolling(paymentId: string) {
+  if (pixPollingTimer.value) clearInterval(pixPollingTimer.value);
+  pixPollingTimer.value = setInterval(async () => {
+    if (!selectedAptForCheckout.value || isPixConfirmed.value) {
+      clearInterval(pixPollingTimer.value);
+      return;
+    }
+    try {
+      const res = await api.checkAppointmentPixStatus(selectedAptForCheckout.value.id, paymentId);
+      if (res.status === 'CONFIRMED') {
+        clearInterval(pixPollingTimer.value);
+        await onPixPaymentApproved();
+      }
+    } catch {}
+  }, 2500);
+}
+
+async function simulatePixPayment() {
+  if (!selectedAptForCheckout.value || !pixData.value) return;
+  playPopSound();
+  try {
+    const consumedPayload = consumedProductsList.value.map(item => ({
+      productId: item.product.id,
+      quantity: item.quantity,
+    }));
+
+    await api.confirmAppointmentPix(selectedAptForCheckout.value.id, {
+      paymentId: pixData.value.paymentId,
+      discount: checkoutDiscount.value,
+      consumedProducts: consumedPayload.length > 0 ? consumedPayload : undefined,
+    });
+
+    if (pixPollingTimer.value) clearInterval(pixPollingTimer.value);
+    await onPixPaymentApproved();
+  } catch (err: any) {
+    toast.error(err.message || 'Erro ao simular pagamento Pix.');
+  }
+}
+
+async function onPixPaymentApproved() {
+  isPixConfirmed.value = true;
+  playPopSound();
+  toast.success('Pagamento Pix Compensado com Sucesso! 💸');
+
+  const apt = selectedAptForCheckout.value;
+  if (!apt) return;
+
+  completedReceiptData.value = {
+    customerName: apt.customer?.name || 'Cliente',
+    phone: apt.customer?.phone,
+    barberName: apt.barber?.name || 'Profissional',
+    chair: apt.barber?.chair || 'Cadeira',
+    time: apt.time,
+    serviceName: apt.service?.name,
+    serviceOriginalPrice: Number(apt.originalPrice || apt.service?.price || 0),
+    discount: Number(checkoutDiscount.value || 0),
+    items: [...consumedProductsList.value],
+    totalGross: pixData.value ? pixData.value.finalPrice : checkoutTotals.value.totalGross,
+    paymentMethod: 'PIX',
+    cashChange: 0,
+  };
+
+  setTimeout(async () => {
+    isCheckoutModalOpen.value = false;
+    selectedAptForCheckout.value = null;
+    isReceiptModalOpen.value = true;
+    pixData.value = null;
+    isPixConfirmed.value = false;
+    await Promise.all([loadAppointments(), loadProducts()]);
+  }, 1200);
+}
+
+function copyPixCopiaCola() {
+  if (!pixData.value?.pixCopiaCola) return;
+  navigator.clipboard.writeText(pixData.value.pixCopiaCola);
+  toast.success('Chave Pix Copia e Cola copiada!');
+}
+
 function openCheckoutModal(apt: Appointment) {
   playPopSound();
   selectedAptForCheckout.value = apt;
@@ -1112,6 +1222,10 @@ function openCheckoutModal(apt: Appointment) {
   consumedProductsList.value = [];
   comandaSearchQuery.value = '';
   comandaActiveCategory.value = 'ALL';
+  pixData.value = null;
+  isPixConfirmed.value = false;
+  pixMode.value = 'DYNAMIC';
+  if (pixPollingTimer.value) clearInterval(pixPollingTimer.value);
   isCheckoutModalOpen.value = true;
 }
 
@@ -2628,6 +2742,123 @@ onMounted(async () => {
               >
                 💵 Dinheiro
               </button>
+            </div>
+          </div>
+
+          <!-- Dynamic Pix Experience Box when PIX is Selected -->
+          <div v-if="checkoutPaymentMethod === 'PIX'" class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 space-y-3">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="flex items-center gap-1.5 text-xs font-black text-slate-800 dark:text-white">
+                <Sparkles class="w-4 h-4 text-amber-500 shrink-0" />
+                <span>Cobrança Pix Integrada</span>
+              </div>
+              
+              <!-- Pix Mode Switcher -->
+              <div class="flex items-center bg-slate-200/80 dark:bg-black/40 p-0.5 rounded-lg text-[11px] font-bold">
+                <button 
+                  type="button"
+                  @click="pixMode = 'DYNAMIC'"
+                  class="px-2.5 py-1 rounded-md transition cursor-pointer"
+                  :class="pixMode === 'DYNAMIC' ? 'bg-white dark:bg-amber-500 text-slate-900 dark:text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'"
+                >
+                  ⚡ QR Code na Tela
+                </button>
+                <button 
+                  type="button"
+                  @click="pixMode = 'MANUAL'"
+                  class="px-2.5 py-1 rounded-md transition cursor-pointer"
+                  :class="pixMode === 'MANUAL' ? 'bg-white dark:bg-amber-500 text-slate-900 dark:text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'"
+                >
+                  Manual / Maquininha
+                </button>
+              </div>
+            </div>
+
+            <!-- Dynamic Pix View -->
+            <div v-if="pixMode === 'DYNAMIC'">
+              <!-- If Pix not generated yet -->
+              <div v-if="!pixData" class="text-center py-2">
+                <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                  Gera cobrança Pix com valor de <b>R$ {{ checkoutTotals.totalGross.toFixed(2) }}</b> e split automático Salão-Parceiro.
+                </p>
+                <button 
+                  type="button"
+                  @click="generateDynamicPix"
+                  :disabled="isGeneratingPix"
+                  class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-amber-500/20 disabled:opacity-50"
+                >
+                  <span v-if="isGeneratingPix" class="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></span>
+                  <Sparkles v-else class="w-4 h-4 stroke-[2.5]" />
+                  <span>{{ isGeneratingPix ? 'Gerando Cobrança Pix...' : '⚡ Gerar QR Code Pix no Balcão' }}</span>
+                </button>
+              </div>
+
+              <!-- If Pix Generated -->
+              <div v-else class="space-y-3 text-center">
+                <!-- QR Code Box -->
+                <div class="relative inline-block mx-auto bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                  <img 
+                    v-if="pixData.pixQrCodeUrl" 
+                    :src="pixData.pixQrCodeUrl" 
+                    alt="QR Code Pix"
+                    class="w-44 h-44 mx-auto object-contain"
+                  />
+                  <div v-else class="w-44 h-44 flex items-center justify-center bg-slate-50 rounded-xl text-slate-400 text-xs font-mono">
+                    QR Code gerado
+                  </div>
+
+                  <div v-if="isPixConfirmed" class="absolute inset-0 bg-emerald-950/90 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center text-white p-3">
+                    <CheckCircle2 class="w-12 h-12 text-emerald-400 animate-bounce mb-1" />
+                    <span class="font-black text-sm text-emerald-300">PAGAMENTO APROVADO!</span>
+                    <span class="text-[11px] opacity-80">Concluindo atendimento...</span>
+                  </div>
+                </div>
+
+                <!-- Live Status Radar -->
+                <div v-if="!isPixConfirmed" class="flex items-center justify-center gap-2 text-xs font-bold text-amber-600 dark:text-amber-400">
+                  <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                  <span>Aguardando leitura do cliente no app do banco...</span>
+                </div>
+
+                <!-- Copia e Cola String & Button -->
+                <div class="flex items-center gap-1.5">
+                  <input 
+                    type="text" 
+                    readonly 
+                    :value="pixData.pixCopiaCola" 
+                    class="flex-1 bg-white dark:bg-black/40 border border-slate-200 dark:border-white/10 px-2.5 py-1.5 rounded-xl font-mono text-[11px] text-slate-600 dark:text-slate-300 truncate"
+                  />
+                  <button 
+                    type="button" 
+                    @click="copyPixCopiaCola"
+                    class="px-3 py-1.5 rounded-xl bg-slate-900 text-white dark:bg-white/10 hover:bg-slate-800 text-xs font-bold shrink-0 cursor-pointer"
+                  >
+                    Copiar
+                  </button>
+                </div>
+
+                <!-- Split Transparency Badge -->
+                <div class="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 bg-white/70 dark:bg-black/20 p-2 rounded-xl">
+                  <span>💈 Cota Barbearia: <b>R$ {{ pixData.salonShare.toFixed(2) }}</b></span>
+                  <span>✂️ Barbeiro MEI: <b>R$ {{ pixData.barberShare.toFixed(2) }}</b></span>
+                </div>
+
+                <!-- Dev / Sandbox Test Simulator Button -->
+                <div v-if="pixData.isMock && !isPixConfirmed" class="pt-1">
+                  <button 
+                    type="button"
+                    @click="simulatePixPayment"
+                    class="w-full py-2 px-3 rounded-xl bg-blue-500/15 border border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/25 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <span>⚡ Simular Confirmação Bancária (Teste Balcão)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Manual Pix Note -->
+            <div v-else class="text-xs text-slate-500 dark:text-slate-400 py-1">
+              O atendente confirma manualmente que o cliente realizou o Pix na maquininha externa ou na chave do estabelecimento.
             </div>
           </div>
 

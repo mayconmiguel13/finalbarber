@@ -1,3 +1,4 @@
+import QRCode from 'qrcode';
 import dotenv from 'dotenv';
 dotenv.config();
 import { prisma } from '../db.js';
@@ -183,10 +184,18 @@ class AsaasService {
 
     // High-fidelity fallback with EMV QR Code & Instant simulation ID
     const mockId = `pay_asaas_${Date.now()}`;
+    let qrDataUrl: string | undefined = undefined;
+    try {
+      qrDataUrl = await QRCode.toDataURL(fallbackPixCode, { width: 280, margin: 2 });
+    } catch (e) {
+      console.warn('[QRCode] Erro ao gerar imagem base64:', e);
+    }
+
     return {
       paymentId: mockId,
       externalId: mockId,
       pixCopiaCola: fallbackPixCode,
+      pixQrCodeUrl: qrDataUrl,
       finalPrice: split.finalPrice,
       discountAmount: split.discountAmount,
       salonShare: split.salonShare,

@@ -22,10 +22,12 @@
     "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
+    "qrcode": "^1.5.4",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
+    "@types/qrcode": "^1.5.6",
     "msedge-tts": "^2.1.0",
     "prisma": "^6.4.1",
     "tsup": "^8.3.6",

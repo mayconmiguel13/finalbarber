@@ -2,6 +2,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { calculateSplit } from '../services/splitCalculator.js';
+import { asaasService } from '../services/asaasService.js';
 
 export async function appointmentsRoutes(app: FastifyInstance) {
   // Helper: Auto-seed initial realistic appointments for an organization if empty
@@ -645,4 +646,275 @@ export async function appointmentsRoutes(app: FastifyInstance) {
       return reply.status(500).send({ error: 'Erro ao remover agendamento.' });
     }
   });
+
+  // POST /api/appointments/:id/pix-checkout - Gerar Pix Dinâmico no Balcão com Split
+  app.post('/appointments/:id/pix-checkout', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
+    const { id } = request.params;
+
+    const schema = z.object({
+      discount: z.number().min(0).default(0),
+      consumedProducts: z.array(z.object({
+        productId: z.string(),
+        quantity: z.number().int().min(1).default(1),
+      })).optional(),
+    });
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.format() });
+
+    try {
+      const appointment = await prisma.appointment.findFirst({
+        where: { id, orgId },
+        include: {
+          customer: true,
+          barber: { include: { user: true } },
+          service: true,
+        },
+      });
+
+      if (!appointment) return reply.status(404).send({ error: 'Agendamento não encontrado.' });
+
+      const servicePrice = Number(appointment.finalPrice) || Number(appointment.service.price) || 0;
+      let productsPrice = 0;
+
+      if (parsed.data.consumedProducts && parsed.data.consumedProducts.length > 0) {
+        for (const item of parsed.data.consumedProducts) {
+          const prods: any[] = await prisma.$queryRawUnsafe(
+            'SELECT salePrice FROM products WHERE id = ? AND orgId = ?',
+            item.productId, orgId
+          );
+          if (prods.length > 0) {
+            productsPrice += (Number(prods[0].salePrice) || 0) * item.quantity;
+          }
+        }
+      }
+
+      const discount = parsed.data.discount || 0;
+      const netTotal = Math.max(0.01, Number((servicePrice + productsPrice - discount).toFixed(2)));
+
+      // Gerar Pix via Asaas (ou mock de alta fidelidade) com cálculo do Split da Lei do Salão-Parceiro
+      const pixResult = await asaasService.createPixWithSplit({
+        appointmentId: appointment.id,
+        clientName: appointment.customer?.name || 'Cliente Balcão',
+        clientPhone: appointment.customer?.phone || '5511999999999',
+        servicePrice: netTotal,
+        barberName: appointment.barber?.nickname || appointment.barber?.user?.name || 'Barbeiro',
+        barberCommissionRate: Number(appointment.barber?.commissionRate) || 50,
+      });
+
+      // Salva / atualiza a transação como pendente
+      await prisma.transaction.upsert({
+        where: { appointmentId: appointment.id },
+        create: {
+          orgId,
+          appointmentId: appointment.id,
+          externalId: pixResult.externalId,
+          paymentMethod: 'PIX',
+          status: 'PENDING',
+          grossAmount: pixResult.finalPrice,
+          salonShare: pixResult.salonShare,
+          barberShare: pixResult.barberShare,
+          platformFee: pixResult.platformFee,
+          gatewayFee: pixResult.gatewayFee,
+          pixQrCodeUrl: pixResult.pixQrCodeUrl,
+          pixCopiaCola: pixResult.pixCopiaCola,
+        },
+        update: {
+          externalId: pixResult.externalId,
+          paymentMethod: 'PIX',
+          status: 'PENDING',
+          grossAmount: pixResult.finalPrice,
+          salonShare: pixResult.salonShare,
+          barberShare: pixResult.barberShare,
+          platformFee: pixResult.platformFee,
+          gatewayFee: pixResult.gatewayFee,
+          pixQrCodeUrl: pixResult.pixQrCodeUrl,
+          pixCopiaCola: pixResult.pixCopiaCola,
+          updatedAt: new Date(),
+        },
+      });
+
+      return reply.send({
+        success: true,
+        pix: {
+          paymentId: pixResult.paymentId,
+          externalId: pixResult.externalId,
+          pixCopiaCola: pixResult.pixCopiaCola,
+          pixQrCodeUrl: pixResult.pixQrCodeUrl,
+          finalPrice: pixResult.finalPrice,
+          discountAmount: discount,
+          salonShare: pixResult.salonShare,
+          barberShare: pixResult.barberShare,
+          isMock: pixResult.isMock,
+        },
+      });
+    } catch (err: any) {
+      console.error('[Pix Checkout error]', err);
+      return reply.status(500).send({ error: 'Erro ao gerar Pix dinâmico.' });
+    }
+  });
+
+  // GET /api/appointments/:id/pix-status/:paymentId - Polling de Status do Pix
+  app.get('/appointments/:id/pix-status/:paymentId', async (request: FastifyRequest<{ Params: { id: string; paymentId: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
+    const { id, paymentId } = request.params;
+
+    try {
+      const tx = await prisma.transaction.findFirst({
+        where: {
+          orgId,
+          OR: [
+            { appointmentId: id },
+            { externalId: paymentId },
+          ],
+        },
+      });
+
+      if (!tx) {
+        return reply.status(404).send({ error: 'Transação Pix não encontrada.' });
+      }
+
+      const isPaid = tx.status === 'PAID';
+      return reply.send({
+        status: isPaid ? 'CONFIRMED' : 'PENDING',
+        paidAt: tx.paidAt,
+        grossAmount: tx.grossAmount,
+      });
+    } catch (err: any) {
+      return reply.status(500).send({ error: 'Erro ao verificar status do Pix.' });
+    }
+  });
+
+  // POST /api/appointments/:id/pix-confirm - Confirmação / Simulação de Pix Aprovado no Balcão
+  app.post('/appointments/:id/pix-confirm', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
+    const { id } = request.params;
+
+    const schema = z.object({
+      paymentId: z.string().optional(),
+      discount: z.number().min(0).default(0),
+      consumedProducts: z.array(z.object({
+        productId: z.string(),
+        quantity: z.number().int().min(1).default(1),
+      })).optional(),
+    });
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.format() });
+
+    try {
+      const appointment = await prisma.appointment.findFirst({
+        where: { id, orgId },
+        include: {
+          customer: true,
+          barber: { include: { user: true } },
+          service: true,
+        },
+      });
+
+      if (!appointment) return reply.status(404).send({ error: 'Agendamento não encontrado.' });
+
+      // Atualiza Transação para PAID
+      await prisma.transaction.updateMany({
+        where: {
+          orgId,
+          appointmentId: id,
+        },
+        data: {
+          status: 'PAID',
+          paidAt: new Date(),
+        },
+      });
+
+      // Atualiza Agendamento para COMPLETED
+      await prisma.appointment.update({
+        where: { id },
+        data: {
+          status: 'COMPLETED',
+        },
+      });
+
+      // Lançar no financeiro e dar baixa no estoque
+      const finalPrice = Number(appointment.finalPrice) || Number(appointment.service.price) || 0;
+      const commRate = Number(appointment.barber.commissionRate) || 50;
+      const commAmount = (finalPrice * commRate) / 100;
+      const finId = 'fin_apt_' + appointment.id;
+
+      const existing: any[] = await prisma.$queryRawUnsafe('SELECT id FROM financial_entries WHERE id = ?', finId);
+      if (existing.length === 0) {
+        await prisma.$queryRawUnsafe(`
+          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, 'PIX', 'PAID', ?, ?, NOW(), NOW(), NOW())
+        `, finId, orgId, `Atendimento: ${appointment.service.name} (${appointment.customer.name})`, finalPrice, appointment.barberId, commAmount);
+      }
+
+      if (parsed.data.consumedProducts && parsed.data.consumedProducts.length > 0) {
+        for (const item of parsed.data.consumedProducts) {
+          const prods: any[] = await prisma.$queryRawUnsafe(
+            'SELECT id, name, category, salePrice, stockQuantity, commissionPercentage FROM products WHERE id = ? AND orgId = ?',
+            item.productId, orgId
+          );
+
+          if (prods.length > 0) {
+            const prod = prods[0];
+            const qty = item.quantity;
+            const unitPrice = Number(prod.salePrice);
+            const totalProdAmount = unitPrice * qty;
+            const prodCommRate = Number(prod.commissionPercentage) || 0;
+            const prodCommAmount = (totalProdAmount * prodCommRate) / 100;
+
+            await prisma.$queryRawUnsafe(
+              'UPDATE products SET stockQuantity = stockQuantity - ?, updatedAt = NOW() WHERE id = ?',
+              qty, prod.id
+            );
+
+            const saleId = 'ps_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
+            await prisma.$queryRawUnsafe(`
+              INSERT INTO product_sales (id, orgId, productId, barberId, customerId, quantity, unitPrice, totalAmount, commissionRate, commissionAmount, paymentMethod, createdAt)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PIX', NOW())
+            `, saleId, orgId, prod.id, appointment.barberId, appointment.customerId, qty, unitPrice, totalProdAmount, prodCommRate, prodCommAmount);
+
+            const finProdId = 'fe_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
+            const desc = `Consumo em Cadeira: ${qty}x ${prod.name} (${appointment.customer.name})`;
+            await prisma.$queryRawUnsafe(`
+              INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+              VALUES (?, ?, 'INCOME', 'Venda de Produto', ?, ?, 'PIX', 'PAID', ?, ?, NOW(), NOW(), NOW())
+            `, finProdId, orgId, desc, totalProdAmount, appointment.barberId, prodCommAmount);
+          }
+        }
+      }
+
+      return reply.send({
+        success: true,
+        status: 'CONFIRMED',
+        message: 'Pagamento Pix confirmado e receita lançada no financeiro!',
+      });
+    } catch (err: any) {
+      console.error('[Pix Confirm error]', err);
+      return reply.status(500).send({ error: 'Erro ao confirmar Pix.' });
+    }
+  });
+
 }

@@ -574,6 +574,60 @@ export const api = {
     return resData;
   },
 
+  async generateAppointmentPixCheckout(
+    id: string,
+    data: { discount?: number; consumedProducts?: Array<{ productId: string; quantity: number }> }
+  ): Promise<{
+    success: boolean;
+    pix: {
+      paymentId: string;
+      externalId: string;
+      pixCopiaCola: string;
+      pixQrCodeUrl?: string;
+      finalPrice: number;
+      discountAmount: number;
+      salonShare: number;
+      barberShare: number;
+      isMock: boolean;
+    };
+  }> {
+    const res = await fetch(`/api/appointments/${id}/pix-checkout`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao gerar Pix dinâmico');
+    return resData;
+  },
+
+  async checkAppointmentPixStatus(
+    id: string,
+    paymentId: string
+  ): Promise<{ status: 'PENDING' | 'CONFIRMED' | 'OVERDUE'; paidAt?: string; grossAmount?: number }> {
+    const res = await fetch(`/api/appointments/${id}/pix-status/${paymentId}`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao consultar status do Pix');
+    return resData;
+  },
+
+  async confirmAppointmentPix(
+    id: string,
+    data: { paymentId?: string; discount?: number; consumedProducts?: Array<{ productId: string; quantity: number }> }
+  ): Promise<{ success: boolean; status: string; message: string }> {
+    const res = await fetch(`/api/appointments/${id}/pix-confirm`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao confirmar Pix');
+    return resData;
+  },
+
   // ================= BARBERS API =================
   async getBarbers(): Promise<Barber[]> {
     const res = await fetch('/api/barbers', { headers: getAuthHeaders() });
