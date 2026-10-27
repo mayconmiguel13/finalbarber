@@ -1184,9 +1184,12 @@ const checkoutTotals = computed(() => {
     }
   });
 
-  const totalGross = servicePrice + productsPrice;
+  const totalGross = Math.max(0, servicePrice + productsPrice - (checkoutDiscount.value || 0));
   const totalBarber = serviceComm + productsComm;
-  const totalSalon = totalGross - totalBarber;
+  const totalSalon = Math.max(0, totalGross - totalBarber);
+  const cashChange = (cashGivenAmount.value && cashGivenAmount.value > totalGross)
+    ? cashGivenAmount.value - totalGross
+    : 0;
 
   return {
     servicePrice,
@@ -1197,6 +1200,7 @@ const checkoutTotals = computed(() => {
     totalBarber,
     totalSalon,
     hasNegativeStock,
+    cashChange,
   };
 });
 
@@ -1216,6 +1220,22 @@ async function handleConfirmCheckout() {
       consumedPayload.length > 0 ? consumedPayload : undefined
     );
 
+    const apt = selectedAptForCheckout.value;
+    completedReceiptData.value = {
+      customerName: apt.customer?.name || 'Cliente',
+      phone: apt.customer?.phone,
+      barberName: apt.barber?.name || 'Profissional',
+      chair: apt.barber?.chair || 'Cadeira',
+      time: apt.time,
+      serviceName: apt.service?.name,
+      serviceOriginalPrice: Number(apt.originalPrice || apt.service?.price || 0),
+      discount: Number(checkoutDiscount.value || 0),
+      items: [...consumedProductsList.value],
+      totalGross: checkoutTotals.value.totalGross,
+      paymentMethod: checkoutPaymentMethod.value,
+      cashChange: checkoutTotals.value.cashChange,
+    };
+
     if (checkoutTotals.value.hasNegativeStock) {
       toast.warning('Atendimento concluído! Atenção: Alguns produtos ficaram com estoque zerado/negativo.');
     } else {
@@ -1224,6 +1244,7 @@ async function handleConfirmCheckout() {
 
     isCheckoutModalOpen.value = false;
     selectedAptForCheckout.value = null;
+    isReceiptModalOpen.value = true;
     await Promise.all([loadAppointments(), loadProducts()]);
   } catch (err: any) {
     toast.error(err.message || 'Erro ao finalizar atendimento.');
