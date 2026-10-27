@@ -6,6 +6,7 @@ import LandingView from '../views/LandingView.vue';
 import LoginView from '../views/LoginView.vue';
 import OnboardingView from '../views/OnboardingView.vue';
 import { useAuthStore } from '../stores/auth';
+import { pinia } from '../pinia';
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -104,7 +105,7 @@ export const router = createRouter({
 });
 
 router.beforeEach((to, from, next) => {
-  const authStore = useAuthStore();
+  const authStore = useAuthStore(pinia);
 
   // If going to landing or login while authenticated, send to dashboard
   if (to.meta.public && authStore.isAuthenticated) {

@@ -26,15 +26,31 @@
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
     <script>
-      // Registro do Service Worker do PWA
+      // Em localhost/desenvolvimento, desregistra o Service Worker e limpa cache para evitar conflitos com o HMR do Vite
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').then((reg) => {
-            console.log('✅ [PWA] Service Worker BarblyClub registrado com sucesso:', reg.scope);
-          }).catch((err) => {
-            console.warn('⚠️ [PWA] Falha ao registrar Service Worker:', err);
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (isLocalhost) {
+          navigator.serviceWorker.getRegistrations().then((regs) => {
+            for (const reg of regs) {
+              reg.unregister();
+            }
           });
-        });
+          if ('caches' in window) {
+            caches.keys().then((keys) => {
+              for (const k of keys) {
+                if (k.startsWith('barbly-')) caches.delete(k);
+              }
+            });
+          }
+        } else {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').then((reg) => {
+              console.log('✅ [PWA] Service Worker BarblyClub registrado com sucesso:', reg.scope);
+            }).catch((err) => {
+              console.warn('⚠️ [PWA] Falha ao registrar Service Worker:', err);
+            });
+          });
+        }
       }
     </script>
   </body>

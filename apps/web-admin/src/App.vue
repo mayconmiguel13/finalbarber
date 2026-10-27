@@ -9,10 +9,11 @@ import AppointmentModal from './components/AppointmentModal.vue';
 import ToastContainer from './components/ToastContainer.vue';
 import { useThemeStore } from './stores/theme';
 import { useAuthStore } from './stores/auth';
+import { pinia } from './pinia';
 
 const route = useRoute();
-const themeStore = useThemeStore();
-const authStore = useAuthStore();
+const themeStore = useThemeStore(pinia);
+const authStore = useAuthStore(pinia);
 const isModalOpen = ref(false);
 const isMobileSidebarOpen = ref(false);
 
