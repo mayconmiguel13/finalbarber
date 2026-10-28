@@ -439,12 +439,14 @@ export interface BarberSplitSummary {
   barberName: string;
   avatarUrl: string;
   pixKey: string;
+  chair?: string;
   commissionRate: number;
   totalServicesRevenue: number;
   totalProductsRevenue: number;
   totalGrossRevenue: number;
   totalCommissionEarned: number;
   totalCommissionPaid: number;
+  totalPaid?: number;
   pendingPayout: number;
   salonRetainedShare: number;
   servicesCount: number;
@@ -893,14 +895,25 @@ export const api = {
   },
 
   // ================= FINANCIAL & SPLIT API =================
-  async getFinancialSummary(): Promise<FinancialSummary> {
-    const res = await fetch('/api/financial/summary', { headers: getAuthHeaders() });
+  async getFinancialSummary(params?: { startDate?: string; endDate?: string }): Promise<FinancialSummary> {
+    const query = new URLSearchParams();
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`/api/financial/summary${qs}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Falha ao carregar resumo financeiro');
     return res.json();
   },
 
-  async getFinancialEntries(): Promise<FinancialEntry[]> {
-    const res = await fetch('/api/financial/entries', { headers: getAuthHeaders() });
+  async getFinancialEntries(params?: { startDate?: string; endDate?: string; type?: string; category?: string; search?: string }): Promise<FinancialEntry[]> {
+    const query = new URLSearchParams();
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    if (params?.type) query.set('type', params.type);
+    if (params?.category) query.set('category', params.category);
+    if (params?.search) query.set('search', params.search);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`/api/financial/entries${qs}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Falha ao carregar lançamentos financeiros');
     return res.json();
   },
@@ -936,8 +949,12 @@ export const api = {
     return resData;
   },
 
-  async getBarberSplits(): Promise<BarberSplitSummary[]> {
-    const res = await fetch('/api/financial/barber-splits', { headers: getAuthHeaders() });
+  async getBarberSplits(params?: { startDate?: string; endDate?: string }): Promise<BarberSplitSummary[]> {
+    const query = new URLSearchParams();
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`/api/financial/barber-splits${qs}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Falha ao carregar splits dos profissionais');
     return res.json();
   },

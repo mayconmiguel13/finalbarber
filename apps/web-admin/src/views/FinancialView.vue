@@ -124,6 +124,141 @@ const productCategoryFilter = ref<string>('Todos');
 const copiedPixKey = ref<string | null>(null);
 
 // ================= MODAIS =================
+
+// ================= CONTROLE DE PERÍODO TEMPORAL =================
+const selectedPeriod = ref<'TODAY' | 'WEEK' | 'MONTH' | 'PREV_MONTH' | 'YEAR' | 'ALL' | 'CUSTOM'>('MONTH');
+const customStartDate = ref('');
+const customEndDate = ref('');
+
+function getActiveDateRange(): { startDate?: string; endDate?: string } {
+  const now = new Date();
+  
+  if (selectedPeriod.value === 'TODAY') {
+    const s = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const e = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    return { startDate: s.toISOString(), endDate: e.toISOString() };
+  }
+  
+  if (selectedPeriod.value === 'WEEK') {
+    const s = new Date(now);
+    s.setDate(now.getDate() - 7);
+    s.setHours(0, 0, 0, 0);
+    const e = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    return { startDate: s.toISOString(), endDate: e.toISOString() };
+  }
+  
+  if (selectedPeriod.value === 'MONTH') {
+    const s = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+    const e = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    return { startDate: s.toISOString(), endDate: e.toISOString() };
+  }
+  
+  if (selectedPeriod.value === 'PREV_MONTH') {
+    const s = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0);
+    const e = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    return { startDate: s.toISOString(), endDate: e.toISOString() };
+  }
+  
+  if (selectedPeriod.value === 'YEAR') {
+    const s = new Date(now.getFullYear(), 0, 1, 0, 0, 0);
+    const e = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+    return { startDate: s.toISOString(), endDate: e.toISOString() };
+  }
+  
+  if (selectedPeriod.value === 'CUSTOM') {
+    if (customStartDate.value && customEndDate.value) {
+      const s = new Date(customStartDate.value + 'T00:00:00');
+      const e = new Date(customEndDate.value + 'T23:59:59');
+      return { startDate: s.toISOString(), endDate: e.toISOString() };
+    }
+  }
+  
+  return {};
+}
+
+function setPeriod(period: typeof selectedPeriod.value) {
+  playPopSound();
+  selectedPeriod.value = period;
+  currentPage.value = 1;
+  loadAllData();
+}
+
+// ================= PAGINAÇÃO & ORDENAÇÃO =================
+const currentPage = ref(1);
+const itemsPerPage = ref(10);
+const sortKey = ref<'date' | 'amount' | 'category' | 'type'>('date');
+const sortOrder = ref<'asc' | 'desc'>('desc');
+
+function toggleSort(key: typeof sortKey.value) {
+  playPopSound();
+  if (sortKey.value === key) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortKey.value = key;
+    sortOrder.value = 'desc';
+  }
+  currentPage.value = 1;
+}
+
+// Modal de Recibo da Lei Salão-Parceiro
+const isReceiptModalOpen = ref(false);
+const receiptData = ref<{
+  barberName: string;
+  pixKey: string;
+  chair: string;
+  amount: number;
+  date: string;
+} | null>(null);
+
+function openReceipt(split: BarberSplitSummary, amount?: number) {
+  receiptData.value = {
+    barberName: split.barberName,
+    pixKey: split.pixKey || '',
+    chair: split.chair || 'Cadeira Principal',
+    amount: amount !== undefined ? amount : (Number(split.totalPaid) || Number(split.pendingPayout) || 0),
+    date: new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+  };
+  isReceiptModalOpen.value = true;
+}
+
+function printReceipt() {
+  window.print();
+}
+
+function exportToCsv() {
+  playPopSound();
+  const list = sortedEntries.value;
+  if (list.length === 0) {
+    toast.error('Nenhum lançamento no período selecionado para exportar.', 'Atenção');
+    return;
+  }
+
+  const headers = ['Data', 'Tipo', 'Categoria', 'Descricao', 'Profissional', 'Forma de Pagamento', 'Status', 'Valor (R$)', 'Comissao Barbeiro (R$)'];
+  const rows = list.map(e => [
+    formatDate(e.paidAt || e.createdAt),
+    e.type === 'INCOME' ? 'Receita' : 'Despesa',
+    `"${(e.category || '').replace(/"/g, '""')}"`,
+    `"${(e.description || '').replace(/"/g, '""')}"`,
+    `"${(e.barberName || 'Salão').replace(/"/g, '""')}"`,
+    e.paymentMethod || 'PIX',
+    e.status === 'PAID' ? 'Pago' : 'Pendente',
+    (Number(e.amount) || 0).toFixed(2).replace('.', ','),
+    (Number(e.barberCommission) || 0).toFixed(2).replace('.', ',')
+  ]);
+
+  const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `extrato_financeiro_${selectedPeriod.value.toLowerCase()}_${new Date().toISOString().split('T')[0]}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  toast.success('Extrato contábil exportado em CSV com sucesso!', 'Exportação Concluída');
+}
+
 // 1. Modal Novo Lançamento Financeiro
 const isEntryModalOpen = ref(false);
 const entryForm = reactive({
@@ -330,6 +465,36 @@ const filteredEntries = computed(() => {
       entry.paymentMethod?.toLowerCase().includes(q)
     );
   });
+});
+
+
+const sortedEntries = computed(() => {
+  const list = [...filteredEntries.value];
+  list.sort((a, b) => {
+    let comparison = 0;
+    if (sortKey.value === 'date') {
+      const dateA = new Date(a.paidAt || a.createdAt).getTime();
+      const dateB = new Date(b.paidAt || b.createdAt).getTime();
+      comparison = dateA - dateB;
+    } else if (sortKey.value === 'amount') {
+      comparison = (Number(a.amount) || 0) - (Number(b.amount) || 0);
+    } else if (sortKey.value === 'category') {
+      comparison = (a.category || '').localeCompare(b.category || '');
+    } else if (sortKey.value === 'type') {
+      comparison = (a.type || '').localeCompare(b.type || '');
+    }
+    return sortOrder.value === 'asc' ? comparison : -comparison;
+  });
+  return list;
+});
+
+const totalPages = computed(() => {
+  return Math.max(1, Math.ceil(sortedEntries.value.length / itemsPerPage.value));
+});
+
+const paginatedEntries = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage.value;
+  return sortedEntries.value.slice(start, start + itemsPerPage.value);
 });
 
 // 2. Splits dos Barbeiros Filtrados
@@ -998,13 +1163,33 @@ onMounted(() => {
           <table class="w-full text-left text-xs">
             <thead class="bg-slate-50 dark:bg-white/[0.02] border-b border-slate-200 dark:border-white/[0.06] text-slate-400 dark:text-slate-500 uppercase tracking-wider font-bold text-[10px]">
               <tr>
-                <th class="px-5 py-3.5">Data</th>
-                <th class="px-5 py-3.5">Tipo</th>
+                <th class="px-5 py-3.5 cursor-pointer hover:text-amber-500 transition" @click="toggleSort('date')">
+                  <div class="flex items-center gap-1">
+                    <span>Data</span>
+                    <ArrowUpDown class="w-3 h-3 opacity-60" />
+                  </div>
+                </th>
+                <th class="px-5 py-3.5 cursor-pointer hover:text-amber-500 transition" @click="toggleSort('type')">
+                  <div class="flex items-center gap-1">
+                    <span>Tipo</span>
+                    <ArrowUpDown class="w-3 h-3 opacity-60" />
+                  </div>
+                </th>
                 <th class="px-5 py-3.5">Descrição</th>
-                <th class="px-5 py-3.5">Categoria</th>
+                <th class="px-5 py-3.5 cursor-pointer hover:text-amber-500 transition" @click="toggleSort('category')">
+                  <div class="flex items-center gap-1">
+                    <span>Categoria</span>
+                    <ArrowUpDown class="w-3 h-3 opacity-60" />
+                  </div>
+                </th>
                 <th class="px-5 py-3.5">Barbeiro / Profissional</th>
                 <th class="px-5 py-3.5">Forma</th>
-                <th class="px-5 py-3.5 text-right">Valor</th>
+                <th class="px-5 py-3.5 text-right cursor-pointer hover:text-amber-500 transition" @click="toggleSort('amount')">
+                  <div class="flex items-center justify-end gap-1">
+                    <span>Valor</span>
+                    <ArrowUpDown class="w-3 h-3 opacity-60" />
+                  </div>
+                </th>
                 <th class="px-5 py-3.5 text-right">Ações</th>
               </tr>
             </thead>

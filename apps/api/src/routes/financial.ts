@@ -90,8 +90,8 @@ export async function deductProductStockFEFO(orgId: string, productId: string, q
 }
 
 export async function financialRoutes(app: FastifyInstance) {
-  // GET /api/financial/summary - Resumo financeiro e KPI cards
-  app.get('/financial/summary', async (request: FastifyRequest, reply: FastifyReply) => {
+  // GET /api/financial/summary - Resumo financeiro e KPI cards (suporta filtro de período)
+  app.get('/financial/summary', async (request: FastifyRequest<{ Querystring: { startDate?: string; endDate?: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
     } catch {
@@ -100,14 +100,28 @@ export async function financialRoutes(app: FastifyInstance) {
 
     const payload = (request as any).user;
     const orgId = payload.orgId;
+    const { startDate, endDate } = request.query;
 
     try {
       await syncCompletedAppointmentsToFinancial(orgId);
-      const entries: any[] = await prisma.$queryRawUnsafe(`
-        SELECT type, category, amount, barberCommission, status
+
+      let query = `
+        SELECT type, category, amount, barberCommission, status, paidAt, createdAt
         FROM financial_entries
         WHERE orgId = ?
-      `, orgId);
+      `;
+      const params: any[] = [orgId];
+
+      if (startDate) {
+        query += ` AND COALESCE(paidAt, createdAt) >= ?`;
+        params.push(new Date(startDate));
+      }
+      if (endDate) {
+        query += ` AND COALESCE(paidAt, createdAt) <= ?`;
+        params.push(new Date(endDate));
+      }
+
+      const entries: any[] = await prisma.$queryRawUnsafe(query, ...params);
 
       let totalIncome = 0;
       let totalExpense = 0;
@@ -129,7 +143,29 @@ export async function financialRoutes(app: FastifyInstance) {
         }
       }
 
-      const pendingCommissions = Math.max(0, totalCommissionsGenerated - totalCommissionsPaid);
+      // Cálculo de comissões pendentes acumuladas totais
+      let allTimePending = 0;
+      if (startDate || endDate) {
+        const allEntries: any[] = await prisma.$queryRawUnsafe(`
+          SELECT type, category, amount, barberCommission, status
+          FROM financial_entries
+          WHERE orgId = ?
+        `, orgId);
+        let allIncomeComm = 0;
+        let allExpensePaid = 0;
+        for (const e of allEntries) {
+          if (e.type === 'INCOME') {
+            allIncomeComm += (Number(e.barberCommission) || 0);
+          } else if (e.type === 'EXPENSE' && (e.category === 'Repasse Barbeiro' || e.category === 'Repasse Salão-Parceiro' || e.category === 'Comissão Barbeiro') && e.status === 'PAID') {
+            allExpensePaid += (Number(e.amount) || 0);
+          }
+        }
+        allTimePending = Math.max(0, allIncomeComm - allExpensePaid);
+      } else {
+        allTimePending = Math.max(0, totalCommissionsGenerated - totalCommissionsPaid);
+      }
+
+      const periodPendingCommissions = Math.max(0, totalCommissionsGenerated - totalCommissionsPaid);
       const netProfit = totalIncome - totalExpense;
 
       return {
@@ -138,7 +174,9 @@ export async function financialRoutes(app: FastifyInstance) {
         netProfit,
         totalCommissionsGenerated,
         totalCommissionsPaid,
-        pendingCommissions,
+        pendingCommissions: allTimePending,
+        periodPendingCommissions,
+        entryCount: entries.length,
       };
     } catch (err: any) {
       console.error('[Financial Summary error]', err);
@@ -146,8 +184,8 @@ export async function financialRoutes(app: FastifyInstance) {
     }
   });
 
-  // GET /api/financial/entries - Lançamentos de receitas e despesas
-  app.get('/financial/entries', async (request: FastifyRequest, reply: FastifyReply) => {
+  // GET /api/financial/entries - Lançamentos com filtro de período, tipo, categoria e busca
+  app.get('/financial/entries', async (request: FastifyRequest<{ Querystring: { startDate?: string; endDate?: string; type?: string; category?: string; search?: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
     } catch {
@@ -156,10 +194,11 @@ export async function financialRoutes(app: FastifyInstance) {
 
     const payload = (request as any).user;
     const orgId = payload.orgId;
+    const { startDate, endDate, type, category, search } = request.query;
 
     try {
       await syncCompletedAppointmentsToFinancial(orgId);
-      const entries = await prisma.$queryRawUnsafe(`
+      let query = `
         SELECT 
           f.id,
           f.type,
@@ -178,11 +217,43 @@ export async function financialRoutes(app: FastifyInstance) {
         LEFT JOIN barber_profiles bp ON f.barberId = bp.id
         LEFT JOIN users u ON bp.userId = u.id
         WHERE f.orgId = ?
-        ORDER BY f.createdAt DESC
-      `, orgId);
+      `;
+      const params: any[] = [orgId];
 
-      return entries;
+      if (startDate) {
+        query += ` AND COALESCE(f.paidAt, f.createdAt) >= ?`;
+        params.push(new Date(startDate));
+      }
+      if (endDate) {
+        query += ` AND COALESCE(f.paidAt, f.createdAt) <= ?`;
+        params.push(new Date(endDate));
+      }
+      if (type && type !== 'ALL') {
+        query += ` AND f.type = ?`;
+        params.push(type);
+      }
+      if (category && category !== 'Todos') {
+        query += ` AND f.category = ?`;
+        params.push(category);
+      }
+      if (search && search.trim()) {
+        const q = `%${search.trim()}%`;
+        query += ` AND (f.description LIKE ? OR f.category LIKE ? OR u.name LIKE ? OR f.paymentMethod LIKE ?)`;
+        params.push(q, q, q, q);
+      }
+
+      query += ` ORDER BY COALESCE(f.paidAt, f.createdAt) DESC, f.createdAt DESC`;
+
+      const entries: any[] = await prisma.$queryRawUnsafe(query, ...params);
+      const serialized = entries.map((e) => ({
+        ...e,
+        amount: Number(e.amount) || 0,
+        barberCommission: Number(e.barberCommission) || 0,
+      }));
+
+      return serialized;
     } catch (err: any) {
+      console.error('[Financial entries error]', err);
       return reply.status(500).send({ error: 'Erro ao buscar extrato financeiro.' });
     }
   });
@@ -213,7 +284,7 @@ export async function financialRoutes(app: FastifyInstance) {
     if (!parse.success) return reply.status(400).send({ error: parse.error.format() });
 
     const data = parse.data;
-    const id = 'fin_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+    const id = 'fin_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
 
     try {
       await prisma.$queryRawUnsafe(`
@@ -230,25 +301,8 @@ export async function financialRoutes(app: FastifyInstance) {
     }
   });
 
-  // DELETE /api/financial/entries/:id
+  // DELETE /api/financial/entries/:id - Excluir lançamento com proteção Multi-Tenant estrita
   app.delete('/financial/entries/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
-    try {
-      await request.jwtVerify();
-    } catch {
-      return reply.status(401).send({ error: 'Token inválido' });
-    }
-
-    const { id } = request.params;
-    try {
-      await prisma.$queryRawUnsafe('DELETE FROM financial_entries WHERE id = ?', id);
-      return { success: true, message: 'Lançamento removido.' };
-    } catch {
-      return reply.status(500).send({ error: 'Erro ao remover lançamento.' });
-    }
-  });
-
-  // GET /api/financial/barber-splits - Extrato individual de cada barbeiro
-  app.get('/financial/barber-splits', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
     } catch {
@@ -257,6 +311,36 @@ export async function financialRoutes(app: FastifyInstance) {
 
     const payload = (request as any).user;
     const orgId = payload.orgId;
+    const { id } = request.params;
+
+    try {
+      const existing: any[] = await prisma.$queryRawUnsafe(`
+        SELECT id FROM financial_entries WHERE id = ? AND orgId = ?
+      `, id, orgId);
+
+      if (existing.length === 0) {
+        return reply.status(404).send({ error: 'Lançamento não encontrado ou não pertence a esta organização.' });
+      }
+
+      await prisma.$queryRawUnsafe('DELETE FROM financial_entries WHERE id = ? AND orgId = ?', id, orgId);
+      return { success: true, message: 'Lançamento removido com sucesso.' };
+    } catch (err: any) {
+      console.error('[Delete financial entry error]', err);
+      return reply.status(500).send({ error: 'Erro ao remover lançamento.' });
+    }
+  });
+
+  // GET /api/financial/barber-splits - Extrato individual de cada barbeiro com suporte a filtro de período
+  app.get('/financial/barber-splits', async (request: FastifyRequest<{ Querystring: { startDate?: string; endDate?: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
+    const { startDate, endDate } = request.query;
 
     try {
       await syncCompletedAppointmentsToFinancial(orgId);
@@ -265,21 +349,33 @@ export async function financialRoutes(app: FastifyInstance) {
         include: { user: true },
       });
 
-      const entries: any[] = await prisma.$queryRawUnsafe(`
-        SELECT barberId, type, category, amount, barberCommission, status
+      const allEntries: any[] = await prisma.$queryRawUnsafe(`
+        SELECT barberId, type, category, amount, barberCommission, status, paidAt, createdAt
         FROM financial_entries
         WHERE orgId = ? AND barberId IS NOT NULL
       `, orgId);
 
+      let periodEntries = allEntries;
+      if (startDate || endDate) {
+        const sTime = startDate ? new Date(startDate).getTime() : 0;
+        const eTime = endDate ? new Date(endDate).getTime() : Infinity;
+
+        periodEntries = allEntries.filter((e) => {
+          const entryTime = new Date(e.paidAt || e.createdAt).getTime();
+          return entryTime >= sTime && entryTime <= eTime;
+        });
+      }
+
       const splits = barbers.map((b) => {
-        const barberEntries = entries.filter((e) => e.barberId === b.id);
-        
+        const bPeriodEntries = periodEntries.filter((e) => e.barberId === b.id);
+        const bAllEntries = allEntries.filter((e) => e.barberId === b.id);
+
         let servicesTotal = 0;
         let productsTotal = 0;
-        let totalCommissions = 0;
-        let totalPaid = 0;
+        let periodCommissions = 0;
+        let periodPaid = 0;
 
-        for (const e of barberEntries) {
+        for (const e of bPeriodEntries) {
           const val = Number(e.amount) || 0;
           const comm = Number(e.barberCommission) || 0;
 
@@ -290,14 +386,24 @@ export async function financialRoutes(app: FastifyInstance) {
             } else {
               servicesTotal += val;
             }
-            totalCommissions += comm;
+            periodCommissions += comm;
           } else if (e.type === 'EXPENSE' && (e.category === 'Repasse Barbeiro' || e.category === 'Repasse Salão-Parceiro' || e.category === 'Comissão Barbeiro') && e.status === 'PAID') {
-            totalPaid += val;
+            periodPaid += val;
           }
         }
 
-        const pendingPayout = Math.max(0, totalCommissions - totalPaid);
-        const salonRetained = (servicesTotal + productsTotal) - totalCommissions;
+        let allTimeEarned = 0;
+        let allTimePaid = 0;
+        for (const e of bAllEntries) {
+          if (e.type === 'INCOME') {
+            allTimeEarned += (Number(e.barberCommission) || 0);
+          } else if (e.type === 'EXPENSE' && (e.category === 'Repasse Barbeiro' || e.category === 'Repasse Salão-Parceiro' || e.category === 'Comissão Barbeiro') && e.status === 'PAID') {
+            allTimePaid += (Number(e.amount) || 0);
+          }
+        }
+
+        const pendingPayout = Math.max(0, allTimeEarned - allTimePaid);
+        const salonRetained = (servicesTotal + productsTotal) - periodCommissions;
 
         return {
           barberId: b.id,
@@ -315,15 +421,17 @@ export async function financialRoutes(app: FastifyInstance) {
           totalProductsRevenue: productsTotal,
           totalGross: servicesTotal + productsTotal,
           totalGrossRevenue: servicesTotal + productsTotal,
-          totalCommissions,
-          totalCommissionEarned: totalCommissions,
-          totalPaid,
-          totalCommissionPaid: totalPaid,
+          totalCommissions: periodCommissions,
+          totalCommissionEarned: periodCommissions,
+          totalPaid: periodPaid,
+          totalCommissionPaid: periodPaid,
           pendingPayout,
+          allTimeEarned,
+          allTimePaid,
           salonRetained,
           salonRetainedShare: salonRetained,
-          servicesCount: barberEntries.filter(e => e.category === 'Serviço').length,
-          productsCount: barberEntries.filter(e => e.category === 'Venda de Produto').length,
+          servicesCount: bPeriodEntries.filter(e => e.category === 'Serviço').length,
+          productsCount: bPeriodEntries.filter(e => e.category === 'Venda de Produto').length,
         };
       });
 
@@ -334,7 +442,7 @@ export async function financialRoutes(app: FastifyInstance) {
     }
   });
 
-  // POST /api/financial/barber-splits/:barberId/pay - Registrar repasse Pix ao Barbeiro
+  // POST /api/financial/barber-splits/:barberId/pay - Registrar repasse Pix ao Barbeiro com validação estrita
   app.post('/financial/barber-splits/:barberId/pay', async (request: FastifyRequest<{ Params: { barberId: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -353,14 +461,16 @@ export async function financialRoutes(app: FastifyInstance) {
     }
 
     try {
-      const barber = await prisma.barberProfile.findUnique({
-        where: { id: barberId },
+      const barber = await prisma.barberProfile.findFirst({
+        where: { id: barberId, orgId },
         include: { user: true },
       });
 
-      if (!barber) return reply.status(404).send({ error: 'Barbeiro não encontrado.' });
+      if (!barber) {
+        return reply.status(404).send({ error: 'Barbeiro não encontrado nesta organização.' });
+      }
 
-      const id = 'fin_pay_' + Date.now();
+      const id = 'fin_pay_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
       const desc = `Repasse de Comissões Pix (Lei 13.352) - ${barber.user.name}`;
 
       await prisma.$queryRawUnsafe(`
@@ -371,8 +481,16 @@ export async function financialRoutes(app: FastifyInstance) {
       return {
         success: true,
         message: `Repasse de R$ ${amount.toFixed(2)} registrado com sucesso para ${barber.user.name}!`,
+        entry: {
+          id,
+          barberId,
+          barberName: barber.user.name,
+          amount,
+          date: new Date().toISOString(),
+        },
       };
     } catch (err: any) {
+      console.error('[Barber pay error]', err);
       return reply.status(500).send({ error: 'Erro ao registrar repasse Pix.' });
     }
   });
