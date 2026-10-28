@@ -331,6 +331,51 @@ export interface TvAdsResponse {
   };
 }
 
+export interface PublicTvResponse {
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    logoUrl?: string | null;
+    themeColor?: string | null;
+    phone?: string | null;
+  };
+  tvSettings: TvSettings;
+  ads: TvAd[];
+  chairs: Array<{
+    barberId: string;
+    barberName: string;
+    nickname: string;
+    avatarUrl?: string | null;
+    chair: string;
+    status: 'OCCUPIED' | 'AVAILABLE' | 'BREAK' | 'CLEANING';
+    statusLabel: string;
+    currentAppointment?: {
+      id: string;
+      clientName: string;
+      isVipMember?: boolean;
+      serviceName: string;
+      startsAt: string;
+      endsAt: string;
+      elapsedMinutes: number;
+      remainingMinutes: number;
+      progressPercent: number;
+    } | null;
+    nextAppointment?: {
+      id: string;
+      time: string;
+      clientName: string;
+      serviceName: string;
+    } | null;
+  }>;
+  upcomingQueue: Array<{
+    id: string;
+    clientName: string;
+    serviceName: string;
+    time: string;
+  }>;
+}
+
 export interface Service {
   id: string;
   name: string;
@@ -1046,6 +1091,12 @@ export const api = {
     const resData = await res.json();
     if (!res.ok) throw new Error(resData.error || 'Falha ao salvar configurações da TV');
     return resData;
+  },
+
+  async getPublicTvData(slug: string): Promise<PublicTvResponse> {
+    const res = await fetch(`/api/public/tv/${encodeURIComponent(slug)}`);
+    if (!res.ok) throw new Error('Falha ao carregar dados do visor da TV');
+    return res.json();
   },
 
 };

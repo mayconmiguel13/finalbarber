@@ -89,6 +89,7 @@ model Organization {
   subscriptionEndsAt  DateTime?
   ownerName           String?      @db.VarChar(120)
   onboardingCompleted Boolean      @default(false)
+  tvSettings          Json?
 
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt

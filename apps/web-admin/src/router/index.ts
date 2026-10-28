@@ -12,6 +12,12 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/tv/:slug?',
+      name: 'tv-player',
+      component: () => import('../views/TvPlayerView.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/landing',
       name: 'landing',
       component: LandingView,
@@ -108,8 +114,8 @@ router.beforeEach((to, from, next) => {
   const authStore = useAuthStore(pinia);
 
   // If going to landing or login while authenticated, send to dashboard
-  if (to.meta.public && authStore.isAuthenticated) {
-    if (authStore.needsOnboarding && to.path !== '/onboarding') {
+  if (to.meta.public && authStore.isAuthenticated && (to.path === '/login' || to.path === '/landing')) {
+    if (authStore.needsOnboarding) {
       return next('/onboarding');
     }
     return next('/');

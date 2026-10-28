@@ -32,7 +32,9 @@ import {
   Radio,
   Sliders,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Search,
+  AlertTriangle
 } from 'lucide-vue-next';
 import { api, type TvAd, type TvSettings } from '../services/api';
 import { useAuthStore } from '../stores/auth';
@@ -47,6 +49,14 @@ const totalMonthlyRevenue = ref(0);
 const activeCount = ref(0);
 const toastMessage = ref<string | null>(null);
 const copiedProposal = ref(false);
+// Filtros e Busca de Anúncios
+const searchQuery = ref('');
+const statusFilter = ref<'ALL' | 'ACTIVE' | 'PAUSED' | 'VIDEO' | 'IMAGE'>('ALL');
+const isDeleteModalOpen = ref(false);
+const adToDelete = ref<TvAd | null>(null);
+const deletingAd = ref(false);
+const copiedTvLink = ref(false);
+
 
 // Configurações da TV & Barbly Ads (Modo Híbrido)
 const tvSettings = ref<TvSettings>({
@@ -67,6 +77,33 @@ const saasMonthlyCost = ref(149);
 const calcGrossRevenue = computed(() => calcPartnersCount.value * calcPartnerPrice.value);
 const calcNetProfit = computed(() => calcGrossRevenue.value - saasMonthlyCost.value);
 const calcAnnualProfit = computed(() => calcNetProfit.value * 12);
+
+
+const filteredAds = computed(() => {
+  let list = adsList.value;
+
+  if (statusFilter.value === 'ACTIVE') {
+    list = list.filter(a => a.active);
+  } else if (statusFilter.value === 'PAUSED') {
+    list = list.filter(a => !a.active);
+  } else if (statusFilter.value === 'VIDEO') {
+    list = list.filter(a => a.mediaType === 'VIDEO');
+  } else if (statusFilter.value === 'IMAGE') {
+    list = list.filter(a => a.mediaType !== 'VIDEO');
+  }
+
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase().trim();
+    list = list.filter(a =>
+      a.title.toLowerCase().includes(q) ||
+      (a.subtitle && a.subtitle.toLowerCase().includes(q)) ||
+      (a.category && a.category.toLowerCase().includes(q)) ||
+      (a.priceTag && a.priceTag.toLowerCase().includes(q))
+    );
+  }
+
+  return list;
+});
 
 // Modal de Criação / Edição
 const isModalOpen = ref(false);
@@ -369,17 +406,27 @@ async function toggleStatus(ad: TvAd) {
   }
 }
 
-// Excluir anúncio
-async function removeAd(ad: TvAd) {
-  if (!confirm(`Tem certeza que deseja remover o anúncio de "${ad.title}"?`)) return;
+// Modal de Exclusão BarblyClub
+function openDeleteModal(ad: TvAd) {
+  adToDelete.value = ad;
+  isDeleteModalOpen.value = true;
+}
+
+async function confirmDeleteAd() {
+  if (!adToDelete.value) return;
 
   try {
-    await api.deleteTvAd(ad.id);
-    showToast('Anúncio removido.');
+    deletingAd.value = true;
+    await api.deleteTvAd(adToDelete.value.id);
+    showToast(`Anúncio "${adToDelete.value.title}" removido com sucesso.`);
+    isDeleteModalOpen.value = false;
+    adToDelete.value = null;
     await loadAllData();
   } catch (err) {
     console.error('Erro ao remover anúncio:', err);
     showToast('Falha ao remover anúncio.');
+  } finally {
+    deletingAd.value = false;
   }
 }
 
@@ -441,8 +488,21 @@ O investimento é de apenas R$ 150/mês. Gostaria de garantir uma das poucas vag
   });
 }
 
+function copyTvPlayerLink() {
+  const slug = authStore.organization?.slug || 'atelier88';
+  const url = `${window.location.origin}/tv/${slug}`;
+  navigator.clipboard.writeText(url).then(() => {
+    copiedTvLink.value = true;
+    showToast('Link do visor da TV copiado! Abra no navegador da Smart TV.');
+    setTimeout(() => {
+      copiedTvLink.value = false;
+    }, 3000);
+  });
+}
+
 function openTvMode() {
-  router.push('/?tv=1');
+  const slug = authStore.organization?.slug || 'atelier88';
+  window.open(`/tv/${slug}`, '_blank');
 }
 
 function formatCurrency(val: number | null | undefined): string {
@@ -450,16 +510,20 @@ function formatCurrency(val: number | null | undefined): string {
 }
 
 function getCategoryBadge(cat: string) {
-  switch (cat) {
+  const upper = (cat || '').toUpperCase();
+  switch (upper) {
     case 'ALIMENTACAO':
+    case 'PARTNER':
       return { label: 'Hamburgueria & Gastronomia', color: 'bg-amber-500/20 text-amber-500 border-amber-500/30' };
     case 'AUTOMOTIVO':
       return { label: 'Estética Automotiva', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' };
     case 'TATUAGEM':
       return { label: 'Tattoo & Body Art', color: 'bg-purple-500/20 text-purple-400 border-purple-500/30' };
     case 'BEBIDAS':
+    case 'BAR':
       return { label: 'Cervejas & Bar', color: 'bg-orange-500/20 text-orange-400 border-orange-500/30' };
     case 'BARBEARIA':
+    case 'PRODUCTS':
       return { label: 'Produtos & Clube VIP', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' };
     case 'MODA':
       return { label: 'Vestuário & Moda', color: 'bg-rose-500/20 text-rose-400 border-rose-500/30' };
@@ -473,6 +537,18 @@ const currentSimAd = computed(() => {
   if (list.length === 0) return null;
   return list[simulatorActiveIndex.value % list.length];
 });
+
+function nextSimAd() {
+  const count = adsList.value.filter(a => a.active).length;
+  if (count <= 1) return;
+  simulatorActiveIndex.value = (simulatorActiveIndex.value + 1) % count;
+}
+
+function prevSimAd() {
+  const count = adsList.value.filter(a => a.active).length;
+  if (count <= 1) return;
+  simulatorActiveIndex.value = (simulatorActiveIndex.value - 1 + count) % count;
+}
 
 onMounted(() => {
   loadAllData();
@@ -550,9 +626,20 @@ onMounted(() => {
           <span>{{ copiedProposal ? 'Copiado!' : 'Proposta Comercial' }}</span>
         </button>
 
+                <button 
+          @click="copyTvPlayerLink"
+          class="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition cursor-pointer border border-slate-200 dark:border-slate-700"
+          title="Copiar URL para rodar na Smart TV da sala de espera"
+        >
+          <Share2 v-if="!copiedTvLink" class="w-4 h-4 text-amber-500" />
+          <Check v-else class="w-4 h-4 text-emerald-500" />
+          <span>{{ copiedTvLink ? 'Link Copiado!' : 'Copiar Link da TV' }}</span>
+        </button>
+
         <button 
           @click="openTvMode"
           class="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition cursor-pointer border border-white/10 shadow-lg"
+          title="Abrir o painel da TV em tela cheia"
         >
           <Maximize2 class="w-4 h-4 text-amber-400" />
           <span>Abrir Modo TV</span>
@@ -775,16 +862,66 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- LISTAGEM DE ANÚNCIOS CADASTRADOS -->
+        <!-- LISTAGEM DE ANÚNCIOS CADASTRADOS COM FILTROS -->
     <div class="space-y-4">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
         <h2 class="text-sm font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-2">
-          <span>Anúncios Ativos na Mídia da TV</span>
-          <span class="text-xs text-slate-400 font-normal">({{ adsList.length }} anunciantes cadastrados)</span>
+          <span>Anúncios na Mídia da TV</span>
+          <span class="text-xs text-slate-400 font-normal">({{ filteredAds.length }} de {{ adsList.length }} exibidos)</span>
         </h2>
-        <span class="text-xs text-slate-400 hidden sm:inline">
-          Dica: Gere o Termo de Parceria em 1 clique para assinar com os lojistas da rua.
-        </span>
+
+        <!-- Barra de Busca e Filtros Rápidos -->
+        <div class="flex flex-wrap items-center gap-2.5">
+          <!-- Campo de Pesquisa -->
+          <div class="relative min-w-[220px]">
+            <Search class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input 
+              v-model="searchQuery" 
+              type="text" 
+              placeholder="Buscar por parceiro ou oferta..."
+              class="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-amber-500"
+            />
+          </div>
+
+          <!-- Chips de Filtro -->
+          <div class="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold">
+            <button 
+              @click="statusFilter = 'ALL'"
+              class="px-2.5 py-1 rounded-lg transition cursor-pointer"
+              :class="statusFilter === 'ALL' ? 'bg-amber-500 text-slate-950 font-black' : 'text-slate-500 hover:text-white'"
+            >
+              Todos ({{ adsList.length }})
+            </button>
+            <button 
+              @click="statusFilter = 'ACTIVE'"
+              class="px-2.5 py-1 rounded-lg transition cursor-pointer"
+              :class="statusFilter === 'ACTIVE' ? 'bg-amber-500 text-slate-950 font-black' : 'text-slate-500 hover:text-white'"
+            >
+              No Ar ({{ adsList.filter(a => a.active).length }})
+            </button>
+            <button 
+              @click="statusFilter = 'PAUSED'"
+              class="px-2.5 py-1 rounded-lg transition cursor-pointer"
+              :class="statusFilter === 'PAUSED' ? 'bg-amber-500 text-slate-950 font-black' : 'text-slate-500 hover:text-white'"
+            >
+              Pausados ({{ adsList.filter(a => !a.active).length }})
+            </button>
+            <button 
+              @click="statusFilter = 'VIDEO'"
+              class="px-2.5 py-1 rounded-lg transition cursor-pointer hidden sm:inline-block"
+              :class="statusFilter === 'VIDEO' ? 'bg-amber-500 text-slate-950 font-black' : 'text-slate-500 hover:text-white'"
+            >
+              Vídeos
+            </button>
+            <button 
+              @click="statusFilter = 'IMAGE'"
+              class="px-2.5 py-1 rounded-lg transition cursor-pointer hidden sm:inline-block"
+              :class="statusFilter === 'IMAGE' ? 'bg-amber-500 text-slate-950 font-black' : 'text-slate-500 hover:text-white'"
+            >
+              Flyers
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Loading State -->
@@ -815,7 +952,7 @@ onMounted(() => {
       <!-- Grid de Cards de Anúncios -->
       <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         <div 
-          v-for="ad in adsList" 
+          v-for="ad in filteredAds" 
           :key="ad.id"
           class="rounded-3xl bg-white dark:bg-[#131722] border overflow-hidden shadow-sm flex flex-col justify-between transition-all hover:border-amber-500/50"
           :class="ad.active ? 'border-slate-200 dark:border-slate-800' : 'opacity-60 border-slate-200 dark:border-slate-800/50 bg-slate-50 dark:bg-slate-900/40'"
@@ -953,7 +1090,7 @@ onMounted(() => {
                   <Edit3 class="w-4 h-4" />
                 </button>
                 <button 
-                  @click="removeAd(ad)"
+                  @click="openDeleteModal(ad)"
                   class="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
                   title="Excluir anúncio"
                 >
@@ -1471,18 +1608,59 @@ onMounted(() => {
           </span>
           <div class="flex items-center gap-2">
             <button 
-              @click="simulatorActiveIndex = Math.max(0, simulatorActiveIndex - 1)"
+              @click="prevSimAd"
               class="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white cursor-pointer"
             >
               Anterior
             </button>
             <button 
-              @click="simulatorActiveIndex = (simulatorActiveIndex + 1) % adsList.filter(a => a.active).length"
+              @click="nextSimAd"
               class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-xs font-black text-slate-950 cursor-pointer"
             >
               Próximo
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+    <!-- MODAL DE CONFIRMAÇÃO DE EXCLUSÃO (PADRÃO BARBLYCLUB) -->
+    <div 
+      v-if="isDeleteModalOpen && adToDelete" 
+      class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+    >
+      <div class="bg-white dark:bg-[#131722] border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 my-8">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 flex items-center justify-center shrink-0">
+            <Trash2 class="w-6 h-6 stroke-[2.2]" />
+          </div>
+          <div>
+            <h3 class="text-base font-black text-slate-900 dark:text-white">Remover Anúncio da TV</h3>
+            <p class="text-xs text-slate-400">Esta ação não poderá ser desfeita.</p>
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+          Tem certeza que deseja excluir permanentemente o anúncio de <strong class="text-slate-900 dark:text-white">"{{ adToDelete.title }}"</strong>? Ele deixará de ser transmitido no carrossel do televisor.
+        </p>
+
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <button 
+            type="button" 
+            @click="isDeleteModalOpen = false" 
+            :disabled="deletingAd"
+            class="px-4 py-2.5 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold transition cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button 
+            type="button" 
+            @click="confirmDeleteAd" 
+            :disabled="deletingAd"
+            class="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-lg shadow-rose-600/20 transition disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+          >
+            <Trash2 v-if="!deletingAd" class="w-4 h-4" />
+            <span>{{ deletingAd ? 'Removendo...' : 'Sim, Excluir' }}</span>
+          </button>
         </div>
       </div>
     </div>
