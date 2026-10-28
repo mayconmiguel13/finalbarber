@@ -100,6 +100,7 @@ model Organization {
   appointments        Appointment[]
   transactions        Transaction[]
   products            Product[]
+  productBatches      ProductBatch[]
   whatsappSessions    WhatsAppSession[]
   galleryItems        GalleryItem[]
   financialEntries    FinancialEntry[]
@@ -308,9 +309,31 @@ model Product {
   updatedAt            DateTime      @updatedAt
 
   organization         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  batches              ProductBatch[]
 
   @@index([orgId])
   @@map("products")
+}
+
+
+model ProductBatch {
+  id              String        @id @default(uuid())
+  orgId           String
+  productId       String
+  batchCode       String?       @db.VarChar(50)
+  expirationDate  DateTime?     @db.Date
+  initialQuantity Int
+  currentQuantity Int
+  costPrice       Decimal       @db.Decimal(10, 2)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  organization    Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([productId])
+  @@map("product_batches")
 }
 
 model FinancialEntry {
@@ -496,4 +519,19 @@ model TvAd {
 
   @@index([orgId])
   @@map("tv_ads")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid()) @db.VarChar(36)
+  email     String   @db.VarChar(255)
+  code      String   @db.VarChar(10)
+  token     String   @db.VarChar(100)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([code])
+  @@index([token])
+  @@map("password_reset_tokens")
 }

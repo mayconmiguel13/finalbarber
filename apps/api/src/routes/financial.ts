@@ -30,6 +30,65 @@ async function syncCompletedAppointmentsToFinancial(orgId: string) {
   }
 }
 
+export async function deductProductStockFEFO(orgId: string, productId: string, quantityToDeduct: number) {
+  try {
+    // 1. Buscar lotes com saldo > 0 ordenados pela data de validade mais próxima (FEFO)
+    const batches: any[] = await prisma.$queryRawUnsafe(`
+      SELECT id, currentQuantity, expirationDate, batchCode
+      FROM product_batches
+      WHERE productId = ? AND orgId = ? AND currentQuantity > 0
+      ORDER BY (expirationDate IS NULL) ASC, expirationDate ASC, createdAt ASC
+    `, productId, orgId);
+
+    let remaining = quantityToDeduct;
+    for (const batch of batches) {
+      if (remaining <= 0) break;
+      const deductFromThis = Math.min(Number(batch.currentQuantity), remaining);
+      const newQty = Number(batch.currentQuantity) - deductFromThis;
+
+      await prisma.$queryRawUnsafe(`
+        UPDATE product_batches
+        SET currentQuantity = ?, updatedAt = NOW()
+        WHERE id = ? AND orgId = ?
+      `, newQty, batch.id, orgId);
+
+      remaining -= deductFromThis;
+    }
+
+    // 2. Decrementar estoque principal do produto
+    await prisma.$queryRawUnsafe(`
+      UPDATE products
+      SET stockQuantity = stockQuantity - ?, updatedAt = NOW()
+      WHERE id = ? AND orgId = ?
+    `, quantityToDeduct, productId, orgId);
+
+    // 3. Recalcular a validade e lote mais próximos ativos do produto
+    const nearest: any[] = await prisma.$queryRawUnsafe(`
+      SELECT expirationDate, batchCode
+      FROM product_batches
+      WHERE productId = ? AND orgId = ? AND currentQuantity > 0
+      ORDER BY (expirationDate IS NULL) ASC, expirationDate ASC, createdAt ASC
+      LIMIT 1
+    `, productId, orgId);
+
+    if (nearest.length > 0) {
+      await prisma.$queryRawUnsafe(`
+        UPDATE products
+        SET expirationDate = ?, batchCode = COALESCE(?, batchCode), updatedAt = NOW()
+        WHERE id = ? AND orgId = ?
+      `, nearest[0].expirationDate || null, nearest[0].batchCode || null, productId, orgId);
+    }
+  } catch (err) {
+    console.error('[deductProductStockFEFO Error]:', err);
+    // Fallback: garante baixa no estoque geral
+    await prisma.$queryRawUnsafe(`
+      UPDATE products
+      SET stockQuantity = stockQuantity - ?, updatedAt = NOW()
+      WHERE id = ? AND orgId = ?
+    `, quantityToDeduct, productId, orgId);
+  }
+}
+
 export async function financialRoutes(app: FastifyInstance) {
   // GET /api/financial/summary - Resumo financeiro e KPI cards
   app.get('/financial/summary', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -319,8 +378,10 @@ export async function financialRoutes(app: FastifyInstance) {
   });
 
   // ================= PRODUTOS & BEBIDAS =================
-  // GET /api/products
-  app.get('/products', async (request: FastifyRequest, reply: FastifyReply) => {
+
+
+  // GET /api/products - Listar produtos (suporta filtro de inativos e contagem de lotes)
+  app.get('/products', async (request: FastifyRequest<{ Querystring: { includeInactive?: string; category?: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
     } catch {
@@ -329,33 +390,54 @@ export async function financialRoutes(app: FastifyInstance) {
 
     const payload = (request as any).user;
     const orgId = payload.orgId;
+    const { includeInactive, category } = request.query;
+    const allowInactive = includeInactive === 'true' || includeInactive === '1';
 
     try {
-      let products: any[] = await prisma.$queryRawUnsafe(`
+      let query = `
         SELECT 
-          id,
-          orgId,
-          name,
-          category,
-          photoUrl,
-          stockQuantity,
-          minStockAlert,
-          costPrice,
-          salePrice,
-          commissionPercentage,
-          expirationDate,
-          batchCode,
-          barcode,
-          description,
-          active,
-          createdAt
-        FROM products
-        WHERE orgId = ? AND active = 1
-        ORDER BY category ASC, name ASC
-      `, orgId);
+          p.id,
+          p.orgId,
+          p.name,
+          p.category,
+          p.photoUrl,
+          p.stockQuantity,
+          p.minStockAlert,
+          p.costPrice,
+          p.salePrice,
+          p.commissionPercentage,
+          p.expirationDate,
+          p.batchCode,
+          p.barcode,
+          p.description,
+          p.active,
+          p.createdAt,
+          (
+            SELECT COUNT(*) 
+            FROM product_batches pb 
+            WHERE pb.productId = p.id AND pb.orgId = p.orgId AND pb.currentQuantity > 0
+          ) AS activeBatchesCount
+        FROM products p
+        WHERE p.orgId = ?
+      `;
+
+      const params: any[] = [orgId];
+
+      if (!allowInactive) {
+        query += ' AND p.active = 1';
+      }
+
+      if (category && category !== 'TODAS') {
+        query += ' AND p.category = ?';
+        params.push(category);
+      }
+
+      query += ' ORDER BY p.category ASC, p.name ASC';
+
+      let products: any[] = await prisma.$queryRawUnsafe(query, ...params);
 
       // Auto-inicializar catálogo de bebidas e cosméticos se a barbearia não tiver nenhum produto
-      if (products.length === 0) {
+      if (products.length === 0 && !category) {
         const defaultCatalog = [
           { name: 'Cerveja Heineken Long Neck 330ml', category: 'Frigobar & Bebidas', cost: 4.80, price: 12.00, stock: 24, min: 6, comm: 0, photo: 'https://images.unsplash.com/photo-1608270192804-d54620ec4221?auto=format&fit=crop&q=80&w=600' },
           { name: 'Cerveja Corona Extra 330ml', category: 'Frigobar & Bebidas', cost: 5.20, price: 14.00, stock: 18, min: 6, comm: 0, photo: 'https://images.unsplash.com/photo-1584225064785-c62a8b43d148?auto=format&fit=crop&q=80&w=600' },
@@ -371,34 +453,32 @@ export async function financialRoutes(app: FastifyInstance) {
             INSERT INTO products (id, orgId, name, category, photoUrl, stockQuantity, minStockAlert, costPrice, salePrice, commissionPercentage, active, createdAt, updatedAt)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())
           `, newId, orgId, item.name, item.category, item.photo, item.stock, item.min, item.cost, item.price, item.comm);
+
+          // Criar lote inicial automático
+          const batchId = 'batch_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+          await prisma.$queryRawUnsafe(`
+            INSERT INTO product_batches (id, orgId, productId, batchCode, expirationDate, initialQuantity, currentQuantity, costPrice, createdAt, updatedAt)
+            VALUES (?, ?, ?, 'LOTE-INICIAL', NULL, ?, ?, ?, NOW(), NOW())
+          `, batchId, orgId, newId, item.stock, item.stock, item.cost);
         }
 
-        products = await prisma.$queryRawUnsafe(`
-          SELECT 
-            id,
-            orgId,
-            name,
-            category,
-            photoUrl,
-            stockQuantity,
-            minStockAlert,
-            costPrice,
-            salePrice,
-            commissionPercentage,
-            expirationDate,
-            batchCode,
-            barcode,
-            description,
-            active,
-            createdAt
-          FROM products
-          WHERE orgId = ? AND active = 1
-          ORDER BY category ASC, name ASC
-        `, orgId);
+        products = await prisma.$queryRawUnsafe(query, ...params);
       }
 
-      return products;
+      const serialized = products.map((p) => ({
+        ...p,
+        activeBatchesCount: Number(p.activeBatchesCount) || 0,
+        costPrice: Number(p.costPrice) || 0,
+        salePrice: Number(p.salePrice) || 0,
+        commissionPercentage: Number(p.commissionPercentage) || 0,
+        stockQuantity: Number(p.stockQuantity) || 0,
+        minStockAlert: Number(p.minStockAlert) || 0,
+        active: Boolean(p.active),
+      }));
+
+      return serialized;
     } catch (err: any) {
+      console.error('[Get products error]', err);
       return reply.status(500).send({ error: 'Erro ao carregar produtos.' });
     }
   });
@@ -450,6 +530,22 @@ export async function financialRoutes(app: FastifyInstance) {
         data.barcode || null, data.description || null
       );
 
+      // Se houver quantidade inicial em estoque, registra automaticamente como o 1º Lote
+      if (data.stockQuantity > 0) {
+        const batchId = 'batch_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+        await prisma.$queryRawUnsafe(`
+          INSERT INTO product_batches (
+            id, orgId, productId, batchCode, expirationDate,
+            initialQuantity, currentQuantity, costPrice, createdAt, updatedAt
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        `, 
+          batchId, orgId, id, data.batchCode || 'LOTE-INICIAL',
+          data.expirationDate ? new Date(data.expirationDate) : null,
+          data.stockQuantity, data.stockQuantity, data.costPrice
+        );
+      }
+
       return {
         success: true,
         message: 'Produto cadastrado com sucesso!',
@@ -461,7 +557,7 @@ export async function financialRoutes(app: FastifyInstance) {
     }
   });
 
-  // PUT /api/products/:id - Atualizar produto
+  // PUT /api/products/:id - Atualizar produto com proteção Multi-Tenant estrita
   app.put('/products/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -469,10 +565,21 @@ export async function financialRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Token inválido' });
     }
 
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
     const { id } = request.params;
     const body: any = request.body || {};
 
     try {
+      // 1. Checagem estrita multi-tenant
+      const existing: any[] = await prisma.$queryRawUnsafe(`
+        SELECT id FROM products WHERE id = ? AND orgId = ?
+      `, id, orgId);
+
+      if (existing.length === 0) {
+        return reply.status(404).send({ error: 'Produto não encontrado ou acesso não autorizado.' });
+      }
+
       await prisma.$queryRawUnsafe(`
         UPDATE products
         SET 
@@ -489,7 +596,7 @@ export async function financialRoutes(app: FastifyInstance) {
           barcode = COALESCE(?, barcode),
           description = COALESCE(?, description),
           updatedAt = NOW()
-        WHERE id = ?
+        WHERE id = ? AND orgId = ?
       `, 
         body.name || null,
         body.category || null,
@@ -503,7 +610,8 @@ export async function financialRoutes(app: FastifyInstance) {
         body.batchCode !== undefined ? body.batchCode : null,
         body.barcode !== undefined ? body.barcode : null,
         body.description !== undefined ? body.description : null,
-        id
+        id,
+        orgId
       );
 
       return {
@@ -516,7 +624,44 @@ export async function financialRoutes(app: FastifyInstance) {
     }
   });
 
-  // DELETE /api/products/:id
+  // PATCH /api/products/:id/toggle - Pausar / Reativar produto
+  app.patch('/products/:id/toggle', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
+    const { id } = request.params;
+
+    try {
+      const existing: any[] = await prisma.$queryRawUnsafe(`
+        SELECT id, active, name FROM products WHERE id = ? AND orgId = ?
+      `, id, orgId);
+
+      if (existing.length === 0) {
+        return reply.status(404).send({ error: 'Produto não encontrado.' });
+      }
+
+      const newActive = existing[0].active ? 0 : 1;
+      await prisma.$queryRawUnsafe(`
+        UPDATE products SET active = ?, updatedAt = NOW() WHERE id = ? AND orgId = ?
+      `, newActive, id, orgId);
+
+      return {
+        success: true,
+        active: Boolean(newActive),
+        message: newActive ? `Produto "${existing[0].name}" ativado com sucesso!` : `Produto "${existing[0].name}" pausado.`,
+      };
+    } catch (err: any) {
+      console.error('[Toggle product error]', err);
+      return reply.status(500).send({ error: 'Erro ao alternar status do produto.' });
+    }
+  });
+
+  // DELETE /api/products/:id - Desativar produto com proteção Multi-Tenant estrita
   app.delete('/products/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -524,16 +669,150 @@ export async function financialRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Token inválido' });
     }
 
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
     const { id } = request.params;
+
     try {
-      await prisma.$queryRawUnsafe(`UPDATE products SET active = 0 WHERE id = ?`, id);
+      const existing: any[] = await prisma.$queryRawUnsafe(`
+        SELECT id FROM products WHERE id = ? AND orgId = ?
+      `, id, orgId);
+
+      if (existing.length === 0) {
+        return reply.status(404).send({ error: 'Produto não encontrado ou acesso não autorizado.' });
+      }
+
+      await prisma.$queryRawUnsafe(`UPDATE products SET active = 0, updatedAt = NOW() WHERE id = ? AND orgId = ?`, id, orgId);
       return { success: true, message: 'Produto desativado com sucesso.' };
     } catch {
       return reply.status(500).send({ error: 'Erro ao desativar produto.' });
     }
   });
 
-  // POST /api/products/sell - PDV / Venda de produto com comissão opcional
+  // GET /api/products/:id/batches - Listar todos os lotes do produto
+  app.get('/products/:id/batches', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
+    const { id } = request.params;
+
+    try {
+      const batches: any[] = await prisma.$queryRawUnsafe(`
+        SELECT 
+          id,
+          batchCode,
+          expirationDate,
+          initialQuantity,
+          currentQuantity,
+          costPrice,
+          createdAt
+        FROM product_batches
+        WHERE productId = ? AND orgId = ?
+        ORDER BY (currentQuantity > 0) DESC, (expirationDate IS NULL) ASC, expirationDate ASC, createdAt DESC
+      `, id, orgId);
+
+      const serializedBatches = batches.map((b) => ({
+        ...b,
+        initialQuantity: Number(b.initialQuantity) || 0,
+        currentQuantity: Number(b.currentQuantity) || 0,
+        costPrice: Number(b.costPrice) || 0,
+      }));
+      return serializedBatches;
+    } catch (err: any) {
+      console.error('[Get product batches error]', err);
+      return reply.status(500).send({ error: 'Erro ao carregar lotes do produto.' });
+    }
+  });
+
+  // POST /api/products/:id/batches - Dar entrada de novo lote com validade no estoque
+  app.post('/products/:id/batches', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
+    const { id } = request.params;
+
+    const schema = z.object({
+      quantity: z.number().int().min(1, 'Quantidade deve ser de pelo menos 1 unidade'),
+      costPrice: z.number().min(0).optional(),
+      expirationDate: z.string().optional().nullable(),
+      batchCode: z.string().optional().nullable(),
+    });
+
+    const parse = schema.safeParse(request.body);
+    if (!parse.success) return reply.status(400).send({ error: parse.error.format() });
+
+    const { quantity, costPrice, expirationDate, batchCode } = parse.data;
+
+    try {
+      const existing: any[] = await prisma.$queryRawUnsafe(`
+        SELECT id, name, costPrice, stockQuantity, expirationDate, batchCode 
+        FROM products 
+        WHERE id = ? AND orgId = ?
+      `, id, orgId);
+
+      if (existing.length === 0) {
+        return reply.status(404).send({ error: 'Produto não encontrado.' });
+      }
+      const product = existing[0];
+
+      const finalCost = costPrice !== undefined ? costPrice : Number(product.costPrice);
+      const batchId = 'batch_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+
+      // 1. Inserir lote
+      await prisma.$queryRawUnsafe(`
+        INSERT INTO product_batches (
+          id, orgId, productId, batchCode, expirationDate,
+          initialQuantity, currentQuantity, costPrice, createdAt, updatedAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+      `, batchId, orgId, id, batchCode || null, expirationDate ? new Date(expirationDate) : null, quantity, quantity, finalCost);
+
+      // 2. Incrementar estoque do produto e atualizar preço de custo se informado
+      await prisma.$queryRawUnsafe(`
+        UPDATE products
+        SET stockQuantity = stockQuantity + ?, costPrice = COALESCE(?, costPrice), updatedAt = NOW()
+        WHERE id = ? AND orgId = ?
+      `, quantity, costPrice !== undefined ? costPrice : null, id, orgId);
+
+      // 3. Recalcular menor validade ativa
+      const nearest: any[] = await prisma.$queryRawUnsafe(`
+        SELECT expirationDate, batchCode
+        FROM product_batches
+        WHERE productId = ? AND orgId = ? AND currentQuantity > 0
+        ORDER BY (expirationDate IS NULL) ASC, expirationDate ASC, createdAt ASC
+        LIMIT 1
+      `, id, orgId);
+
+      if (nearest.length > 0) {
+        await prisma.$queryRawUnsafe(`
+          UPDATE products
+          SET expirationDate = ?, batchCode = COALESCE(?, batchCode), updatedAt = NOW()
+          WHERE id = ? AND orgId = ?
+        `, nearest[0].expirationDate || null, nearest[0].batchCode || null, id, orgId);
+      }
+
+      return {
+        success: true,
+        message: `Entrada de ${quantity} unidades registrada no lote com sucesso!`,
+        batchId,
+      };
+    } catch (err: any) {
+      console.error('[Product batch entry error]', err);
+      return reply.status(500).send({ error: 'Erro ao registrar entrada de lote.' });
+    }
+  });
+
+  // POST /api/products/sell - PDV / Venda com baixa inteligente FEFO
   app.post('/products/sell', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -566,13 +845,10 @@ export async function financialRoutes(app: FastifyInstance) {
       if (prodRes.length === 0) return reply.status(404).send({ error: 'Produto não encontrado.' });
       const product = prodRes[0];
 
-      // Opção A: Permite venda mesmo se estoque zerar ou for insuficiente, gerando aviso
-      const isNegativeStock = (Number(product.stockQuantity) - quantity) < 0;
-
       const unitPrice = Number(product.salePrice);
       const totalAmount = unitPrice * quantity;
       
-      // Cálculo de comissão (se barbeiro informado e percentual > 0)
+      // Cálculo de comissão
       let commissionRate = 0;
       let commissionAmount = 0;
       if (barberId) {
@@ -580,10 +856,8 @@ export async function financialRoutes(app: FastifyInstance) {
         commissionAmount = (totalAmount * commissionRate) / 100;
       }
 
-      // 1. Decrementar estoque (permite negativo para não travar a venda na barbearia)
-      await prisma.$queryRawUnsafe(`
-        UPDATE products SET stockQuantity = stockQuantity - ?, updatedAt = NOW() WHERE id = ?
-      `, quantity, productId);
+      // 1. Baixa no estoque utilizando FEFO (First Expire, First Out)
+      await deductProductStockFEFO(orgId, productId, quantity);
 
       // 2. Registrar venda
       const saleId = 'sale_' + Date.now();

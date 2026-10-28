@@ -406,6 +406,16 @@ export interface BarberSplitSummary {
   productsCount: number;
 }
 
+export interface ProductBatch {
+  id: string;
+  batchCode?: string | null;
+  expirationDate?: string | null;
+  initialQuantity: number;
+  currentQuantity: number;
+  costPrice: number;
+  createdAt: string;
+}
+
 export interface Product {
   id: string;
   orgId?: string;
@@ -422,6 +432,7 @@ export interface Product {
   expirationDate?: string | null;
   batchCode?: string | null;
   barcode?: string | null;
+  activeBatchesCount?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -901,8 +912,12 @@ export const api = {
   },
 
   // ================= PRODUCTS & PDV API =================
-  async getProducts(category?: string): Promise<Product[]> {
-    const url = category ? `/api/products?category=${encodeURIComponent(category)}` : '/api/products';
+  async getProducts(category?: string, includeInactive: boolean = true): Promise<Product[]> {
+    const params = new URLSearchParams();
+    if (category && category !== 'TODAS') params.append('category', category);
+    if (includeInactive) params.append('includeInactive', 'true');
+    const qs = params.toString();
+    const url = qs ? `/api/products?${qs}` : '/api/products';
     const res = await fetch(url, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Falha ao carregar lista de produtos');
     return res.json();
@@ -930,6 +945,16 @@ export const api = {
     return resData;
   },
 
+  async toggleProductActive(id: string): Promise<{ success: boolean; active: boolean; message: string }> {
+    const res = await fetch(`/api/products/${id}/toggle`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao alternar status do produto');
+    return resData;
+  },
+
   async deleteProduct(id: string): Promise<{ success: boolean; message: string }> {
     const res = await fetch(`/api/products/${id}`, {
       method: 'DELETE',
@@ -937,6 +962,23 @@ export const api = {
     });
     const resData = await res.json();
     if (!res.ok) throw new Error(resData.error || 'Falha ao remover produto');
+    return resData;
+  },
+
+  async getProductBatches(productId: string): Promise<ProductBatch[]> {
+    const res = await fetch(`/api/products/${productId}/batches`, { headers: getAuthHeaders() });
+    if (!res.ok) throw new Error('Falha ao carregar lotes do produto');
+    return res.json();
+  },
+
+  async addProductBatch(productId: string, data: { quantity: number; costPrice?: number; expirationDate?: string | null; batchCode?: string | null }): Promise<{ success: boolean; message: string; batchId: string }> {
+    const res = await fetch(`/api/products/${productId}/batches`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao registrar entrada de lote');
     return resData;
   },
 

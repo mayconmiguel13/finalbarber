@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { calculateSplit } from '../services/splitCalculator.js';
 import { asaasService } from '../services/asaasService.js';
+import { deductProductStockFEFO } from './financial.js';
 
 export async function appointmentsRoutes(app: FastifyInstance) {
   // Helper: Auto-seed initial realistic appointments for an organization if empty
@@ -555,10 +556,8 @@ export async function appointmentsRoutes(app: FastifyInstance) {
               const prodCommRate = Number(prod.commissionPercentage) || 0;
               const prodCommAmount = (totalProdAmount * prodCommRate) / 100;
 
-              // Baixa no estoque (Opção A: permite negativo)
-              await prisma.$queryRawUnsafe(`
-                UPDATE products SET stockQuantity = stockQuantity - ?, updatedAt = NOW() WHERE id = ?
-              `, qty, prod.id);
+              // Baixa no estoque com controle de lote e validade (FEFO)
+              await deductProductStockFEFO(orgId, prod.id, qty);
 
               // Registrar venda de produto vinculada (ID <= 36 chars)
               const saleId = 'ps_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
@@ -940,10 +939,8 @@ export async function appointmentsRoutes(app: FastifyInstance) {
             const prodCommRate = Number(prod.commissionPercentage) || 0;
             const prodCommAmount = (totalProdAmount * prodCommRate) / 100;
 
-            await prisma.$queryRawUnsafe(
-              'UPDATE products SET stockQuantity = stockQuantity - ?, updatedAt = NOW() WHERE id = ?',
-              qty, prod.id
-            );
+            // Baixa no estoque com controle de lote e validade (FEFO)
+            await deductProductStockFEFO(orgId, prod.id, qty);
 
             const saleId = 'ps_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
             await prisma.$queryRawUnsafe(`

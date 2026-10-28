@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue';
+import { ref, computed, onMounted, reactive, watch } from 'vue';
 import { 
   Package, 
   Plus, 
@@ -27,9 +27,21 @@ import {
   ArrowDownRight,
   SlidersHorizontal,
   Beer,
-  Scissors
+  Scissors,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ChevronsLeft,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
+  Power,
+  Inbox,
+  AlertCircle,
+  CheckCircle2,
+  Boxes
 } from 'lucide-vue-next';
-import { api, type Product, type Barber } from '../services/api';
+import { api, type Product, type Barber, type ProductBatch } from '../services/api';
 import { useToastStore } from '../stores/toast';
 
 const toast = useToastStore();
@@ -60,6 +72,7 @@ const barbers = ref<Barber[]>([]);
 const searchQuery = ref('');
 const selectedCategory = ref<string>('TODAS');
 const stockFilter = ref<'ALL' | 'LOW' | 'ZERO' | 'EXPIRING'>('ALL');
+const selectedStatusFilter = ref<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
 const viewMode = ref<'CARDS' | 'LIST'>('CARDS');
 
 // Predefined categories most common in barbershops
@@ -87,7 +100,7 @@ const availableCategories = computed(() => {
 async function loadProducts() {
   isLoading.value = true;
   try {
-    const data = await api.getProducts();
+    const data = await api.getProducts(undefined, true);
     products.value = data;
   } catch (err: any) {
     console.error('Erro ao carregar produtos:', err);
@@ -106,22 +119,25 @@ async function loadBarbers() {
 }
 
 // Helper: Check if expiration date is near or past
-function getExpirationStatus(dateStr?: string | null): { status: 'NORMAL' | 'NEAR' | 'EXPIRED'; days: number } {
-  if (!dateStr) return { status: 'NORMAL', days: 999 };
+function getExpirationStatus(dateStr?: string | null): { status: 'NORMAL' | 'NEAR' | 'EXPIRED' | 'NONE'; days: number; label: string } {
+  if (!dateStr) return { status: 'NONE', days: 999, label: 'Sem validade' };
   const exp = new Date(dateStr);
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   const diffTime = exp.getTime() - now.getTime();
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   
-  if (diffDays < 0) return { status: 'EXPIRED', days: diffDays };
-  if (diffDays <= 30) return { status: 'NEAR', days: diffDays };
-  return { status: 'NORMAL', days: diffDays };
+  if (diffDays < 0) return { status: 'EXPIRED', days: diffDays, label: `Vencido há ${Math.abs(diffDays)}d` };
+  if (diffDays === 0) return { status: 'EXPIRED', days: 0, label: 'Vence hoje' };
+  if (diffDays <= 30) return { status: 'NEAR', days: diffDays, label: `Vence em ${diffDays}d` };
+  return { status: 'NORMAL', days: diffDays, label: `Vence em ${diffDays}d` };
 }
 
 // KPIs
 const metrics = computed(() => {
   const totalItems = products.value.length;
+  const activeItems = products.value.filter(p => p.active).length;
+  const inactiveItems = products.value.filter(p => !p.active).length;
   const totalStockUnits = products.value.reduce((acc, p) => acc + (Number(p.stockQuantity) || 0), 0);
   const totalCostValue = products.value.reduce((acc, p) => acc + ((Number(p.costPrice) || 0) * (Number(p.stockQuantity) || 0)), 0);
   const totalSaleValue = products.value.reduce((acc, p) => acc + ((Number(p.salePrice) || 0) * (Number(p.stockQuantity) || 0)), 0);
@@ -135,6 +151,8 @@ const metrics = computed(() => {
 
   return {
     totalItems,
+    activeItems,
+    inactiveItems,
     totalStockUnits,
     totalCostValue,
     totalSaleValue,
@@ -148,6 +166,13 @@ const metrics = computed(() => {
 // Filtered products list
 const filteredProducts = computed(() => {
   let list = [...products.value];
+
+  // Status Filter
+  if (selectedStatusFilter.value === 'ACTIVE') {
+    list = list.filter(p => p.active);
+  } else if (selectedStatusFilter.value === 'INACTIVE') {
+    list = list.filter(p => !p.active);
+  }
 
   // Category filter
   if (selectedCategory.value !== 'TODAS') {
@@ -180,6 +205,118 @@ const filteredProducts = computed(() => {
 
   return list;
 });
+
+// ================= DATATABLE & PAGINAÇÃO =================
+type ProductSortField = 'name' | 'category' | 'stockQuantity' | 'costPrice' | 'salePrice' | 'commissionPercentage' | 'expirationDate' | 'active';
+const sortField = ref<ProductSortField>('name');
+const sortOrder = ref<'asc' | 'desc'>('asc');
+
+function setSort(field: ProductSortField) {
+  playPopSound();
+  if (sortField.value === field) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField.value = field;
+    sortOrder.value = 'asc';
+  }
+}
+
+const currentPage = ref(1);
+const itemsPerPage = ref(10);
+const pageSizeOptions = [5, 10, 20, 50];
+
+watch([searchQuery, selectedCategory, stockFilter, selectedStatusFilter, itemsPerPage], () => {
+  currentPage.value = 1;
+});
+
+const sortedProducts = computed(() => {
+  const list = [...filteredProducts.value];
+  return list.sort((a, b) => {
+    let comparison = 0;
+    switch (sortField.value) {
+      case 'name':
+        comparison = (a.name || '').localeCompare(b.name || '');
+        break;
+      case 'category':
+        comparison = (a.category || '').localeCompare(b.category || '');
+        break;
+      case 'stockQuantity':
+        comparison = (Number(a.stockQuantity) || 0) - (Number(b.stockQuantity) || 0);
+        break;
+      case 'costPrice':
+        comparison = (Number(a.costPrice) || 0) - (Number(b.costPrice) || 0);
+        break;
+      case 'salePrice':
+        comparison = (Number(a.salePrice) || 0) - (Number(b.salePrice) || 0);
+        break;
+      case 'commissionPercentage':
+        comparison = (Number(a.commissionPercentage) || 0) - (Number(b.commissionPercentage) || 0);
+        break;
+      case 'expirationDate':
+        const dateA = a.expirationDate ? new Date(a.expirationDate).getTime() : 9999999999999;
+        const dateB = b.expirationDate ? new Date(b.expirationDate).getTime() : 9999999999999;
+        comparison = dateA - dateB;
+        break;
+      case 'active':
+        comparison = (a.active ? 1 : 0) - (b.active ? 1 : 0);
+        break;
+    }
+    return sortOrder.value === 'asc' ? comparison : -comparison;
+  });
+});
+
+const totalPages = computed(() => Math.ceil(sortedProducts.value.length / itemsPerPage.value) || 1);
+
+const paginatedProducts = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage.value;
+  return sortedProducts.value.slice(start, start + itemsPerPage.value);
+});
+
+const paginationStartIndex = computed(() => {
+  if (sortedProducts.value.length === 0) return 0;
+  return (currentPage.value - 1) * itemsPerPage.value + 1;
+});
+
+const paginationEndIndex = computed(() => {
+  return Math.min(currentPage.value * itemsPerPage.value, sortedProducts.value.length);
+});
+
+function goToPage(page: number) {
+  if (page >= 1 && page <= totalPages.value) {
+    playPopSound();
+    currentPage.value = page;
+  }
+}
+
+const displayedPages = computed(() => {
+  const total = totalPages.value;
+  const current = currentPage.value;
+  if (total <= 5) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  const pages: (number | string)[] = [1];
+  if (current > 3) pages.push('...');
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  for (let i = start; i <= end; i++) {
+    pages.push(i);
+  }
+  if (current < total - 2) pages.push('...');
+  pages.push(total);
+  return pages;
+});
+
+// Quick toggle active / paused
+async function handleToggleProductActive(prod: Product) {
+  playPopSound();
+  try {
+    const res = await api.toggleProductActive(prod.id);
+    prod.active = res.active;
+    toast.success(res.message);
+  } catch (err: any) {
+    toast.error('Erro ao alternar status do produto.');
+  }
+}
 
 // ================= MODAL: CRIAR / EDITAR PRODUTO =================
 const isProductModalOpen = ref(false);
@@ -309,15 +446,99 @@ async function handleSaveProduct() {
   }
 }
 
-async function handleDeleteProduct(prod: Product) {
-  if (!confirm(`Deseja realmente remover o produto "${prod.name}" do estoque?`)) return;
+// ================= MODAL: ENTRADA DE LOTE / REPOSIÇÃO DE ESTOQUE (FEFO) =================
+const isBatchModalOpen = ref(false);
+const selectedProductForBatch = ref<Product | null>(null);
+const batchForm = reactive({
+  quantity: 10,
+  costPrice: 0,
+  expirationDate: '',
+  batchCode: '',
+});
+const isSubmittingBatch = ref(false);
+
+function openBatchModal(prod?: Product) {
   playPopSound();
+  selectedProductForBatch.value = prod || (products.value[0] || null);
+  batchForm.quantity = 10;
+  batchForm.costPrice = selectedProductForBatch.value ? Number(selectedProductForBatch.value.costPrice) : 0;
+  batchForm.expirationDate = '';
+  batchForm.batchCode = 'LT-' + new Date().getFullYear() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+  isBatchModalOpen.value = true;
+}
+
+async function handleConfirmBatchEntry() {
+  if (!selectedProductForBatch.value) {
+    toast.error('Selecione um produto.');
+    return;
+  }
+  if (batchForm.quantity < 1) {
+    toast.error('A quantidade deve ser de pelo menos 1 unidade.');
+    return;
+  }
+  isSubmittingBatch.value = true;
   try {
-    await api.deleteProduct(prod.id);
-    toast.success('Produto removido.');
+    const res = await api.addProductBatch(selectedProductForBatch.value.id, {
+      quantity: Number(batchForm.quantity),
+      costPrice: Number(batchForm.costPrice),
+      expirationDate: batchForm.expirationDate ? batchForm.expirationDate : null,
+      batchCode: batchForm.batchCode.trim() || null,
+    });
+    toast.success(res.message);
+    isBatchModalOpen.value = false;
     await loadProducts();
   } catch (err: any) {
-    toast.error('Erro ao remover produto.');
+    toast.error(err.message || 'Erro ao registrar entrada de lote.');
+  } finally {
+    isSubmittingBatch.value = false;
+  }
+}
+
+// ================= MODAL: VER HISTÓRICO DE LOTES DO PRODUTO =================
+const isBatchListModalOpen = ref(false);
+const inspectedProduct = ref<Product | null>(null);
+const inspectedBatches = ref<ProductBatch[]>([]);
+const isLoadingBatches = ref(false);
+
+async function openBatchListModal(prod: Product) {
+  playPopSound();
+  inspectedProduct.value = prod;
+  inspectedBatches.value = [];
+  isLoadingBatches.value = true;
+  isBatchListModalOpen.value = true;
+  try {
+    inspectedBatches.value = await api.getProductBatches(prod.id);
+  } catch (err: any) {
+    toast.error('Erro ao carregar lotes do produto.');
+  } finally {
+    isLoadingBatches.value = false;
+  }
+}
+
+// ================= MODAL: CONFIRMAÇÃO DE EXCLUSÃO ESTILIZADA =================
+const isDeleteModalOpen = ref(false);
+const productToDelete = ref<Product | null>(null);
+const isDeletingProduct = ref(false);
+
+function openDeleteModal(prod: Product) {
+  playPopSound();
+  productToDelete.value = prod;
+  isDeleteModalOpen.value = true;
+}
+
+async function confirmDeleteProduct() {
+  if (!productToDelete.value) return;
+  isDeletingProduct.value = true;
+  playPopSound();
+  try {
+    await api.deleteProduct(productToDelete.value.id);
+    toast.success('Produto desativado do catálogo.');
+    isDeleteModalOpen.value = false;
+    await loadProducts();
+  } catch (err: any) {
+    toast.error('Erro ao desativar produto.');
+  } finally {
+    isDeletingProduct.value = false;
   }
 }
 
@@ -391,7 +612,7 @@ async function handleConfirmSell() {
   }
   isSubmittingSell.value = true;
   try {
-    const res = await api.sellProduct({
+    await api.sellProduct({
       productId: sellProductId.value,
       barberId: sellBarberId.value || undefined,
       quantity: sellQuantity.value,
@@ -401,7 +622,7 @@ async function handleConfirmSell() {
     if (sellCalculatedTotal.value.isNegative) {
       toast.warning('Venda concluída! Atenção: este produto ficou com estoque zerado ou negativo.');
     } else {
-      toast.success('Venda concluída e registrada no livro financeiro!');
+      toast.success('Venda concluída e registrada no livro financeiro com baixa FEFO!');
     }
     
     isSellModalOpen.value = false;
@@ -432,11 +653,11 @@ onMounted(async () => {
             <h1 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
               Produtos &amp; Estoque
               <span class="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
-                {{ metrics.totalItems }} itens cadastrados
+                {{ metrics.totalItems }} itens ({{ metrics.activeItems }} ativos)
               </span>
             </h1>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Gestão de frigobar, cosméticos, controle de validade por lote e comissões por venda.
+              Gestão de frigobar, cosméticos, controle de múltiplos lotes com validade (FEFO) e comissões de equipe.
             </p>
           </div>
         </div>
@@ -466,6 +687,16 @@ onMounted(async () => {
             <span class="hidden sm:inline">Tabela</span>
           </button>
         </div>
+
+        <!-- + Entrada de Lote Button -->
+        <button 
+          @click="openBatchModal()" 
+          class="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold text-xs border border-emerald-500/30 transition cursor-pointer"
+          title="Dar entrada de mercadoria com lote e validade"
+        >
+          <Boxes class="w-4 h-4" />
+          <span>+ Entrada de Lote</span>
+        </button>
 
         <!-- Quick PDV Sell Button -->
         <button 
@@ -501,7 +732,7 @@ onMounted(async () => {
           {{ metrics.totalStockUnits }} <span class="text-sm font-semibold text-slate-400">unid.</span>
         </div>
         <div class="text-[11px] text-slate-400 font-medium mt-1 truncate">
-          {{ metrics.totalItems }} itens distintos (SKUs)
+          {{ metrics.totalItems }} itens ({{ metrics.activeItems }} ativos)
         </div>
       </div>
 
@@ -560,12 +791,12 @@ onMounted(async () => {
           {{ metrics.expiringCount }} <span class="text-xs font-semibold text-slate-400">em alerta</span>
         </div>
         <div class="text-[11px] text-slate-400 font-medium mt-1">
-          Vencem nos próximos 30 dias
+          Vencem nos próximos 30 dias (FEFO)
         </div>
       </div>
     </div>
 
-    <!-- ================= FILTERS ROW: CATEGORIAS + BUSCA + ALERTAS ================= -->
+    <!-- ================= FILTERS ROW: CATEGORIAS + STATUS + BUSCA ================= -->
     <div class="space-y-3">
       <!-- Top Categories Pill Row -->
       <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
@@ -591,43 +822,63 @@ onMounted(async () => {
         </button>
       </div>
 
-      <!-- Search + Alert Status Quick Filter -->
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-[#121824] p-3 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-sm">
+      <!-- Search + Alert Status + Active/Inactive Quick Filter -->
+      <div class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-white dark:bg-[#121824] p-3 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-sm">
         
-        <!-- Status Filter Pills -->
-        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          <button 
-            @click="stockFilter = 'ALL'"
-            class="px-3 py-1 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer"
-            :class="stockFilter === 'ALL' ? 'bg-slate-900 text-white dark:bg-white/15' : 'text-slate-400 hover:text-white'"
-          >
-            Todos
-          </button>
-          <button 
-            @click="stockFilter = 'LOW'"
-            class="px-3 py-1 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1"
-            :class="stockFilter === 'LOW' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : 'text-slate-400 hover:text-amber-500'"
-          >
-            <AlertTriangle class="w-3 h-3" /> Estoque Baixo
-          </button>
-          <button 
-            @click="stockFilter = 'ZERO'"
-            class="px-3 py-1 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1"
-            :class="stockFilter === 'ZERO' ? 'bg-rose-500/20 text-rose-500 border border-rose-500/30' : 'text-slate-400 hover:text-rose-500'"
-          >
-            Zerados / Negativos
-          </button>
-          <button 
-            @click="stockFilter = 'EXPIRING'"
-            class="px-3 py-1 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1"
-            :class="stockFilter === 'EXPIRING' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'text-slate-400 hover:text-purple-400'"
-          >
-            <Clock class="w-3 h-3" /> A Vencer
-          </button>
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Active/Inactive Status Selector Tabs -->
+          <div class="flex items-center rounded-xl bg-slate-100 dark:bg-[#07090e] p-1 border border-slate-200/80 dark:border-white/5">
+            <button 
+              @click="playPopSound(); selectedStatusFilter = 'ALL'"
+              class="px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer"
+              :class="selectedStatusFilter === 'ALL' ? 'bg-white dark:bg-white/15 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
+            >
+              Todos ({{ metrics.totalItems }})
+            </button>
+            <button 
+              @click="playPopSound(); selectedStatusFilter = 'ACTIVE'"
+              class="px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
+              :class="selectedStatusFilter === 'ACTIVE' ? 'bg-emerald-500 text-slate-950 font-black shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-emerald-500'"
+            >
+              <CheckCircle2 class="w-3 h-3" /> Ativos ({{ metrics.activeItems }})
+            </button>
+            <button 
+              @click="playPopSound(); selectedStatusFilter = 'INACTIVE'"
+              class="px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1"
+              :class="selectedStatusFilter === 'INACTIVE' ? 'bg-rose-500 text-white font-black shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-rose-500'"
+            >
+              <Power class="w-3 h-3" /> Pausados ({{ metrics.inactiveItems }})
+            </button>
+          </div>
+
+          <!-- Stock Level Pills -->
+          <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <button 
+              @click="stockFilter = stockFilter === 'LOW' ? 'ALL' : 'LOW'"
+              class="px-2.5 py-1 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1"
+              :class="stockFilter === 'LOW' ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30' : 'text-slate-400 hover:text-amber-500 border border-transparent'"
+            >
+              <AlertTriangle class="w-3 h-3" /> Estoque Baixo ({{ metrics.lowStockCount }})
+            </button>
+            <button 
+              @click="stockFilter = stockFilter === 'ZERO' ? 'ALL' : 'ZERO'"
+              class="px-2.5 py-1 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1"
+              :class="stockFilter === 'ZERO' ? 'bg-rose-500/20 text-rose-500 border border-rose-500/30' : 'text-slate-400 hover:text-rose-500 border border-transparent'"
+            >
+              Zerados ({{ metrics.zeroStockCount }})
+            </button>
+            <button 
+              @click="stockFilter = stockFilter === 'EXPIRING' ? 'ALL' : 'EXPIRING'"
+              class="px-2.5 py-1 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer flex items-center gap-1"
+              :class="stockFilter === 'EXPIRING' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'text-slate-400 hover:text-purple-400 border border-transparent'"
+            >
+              <Clock class="w-3 h-3" /> A Vencer ({{ metrics.expiringCount }})
+            </button>
+          </div>
         </div>
 
         <!-- Search input -->
-        <div class="relative w-full sm:w-72">
+        <div class="relative w-full lg:w-80">
           <Search class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input 
             v-model="searchQuery" 
@@ -678,6 +929,7 @@ onMounted(async () => {
           v-for="prod in filteredProducts" 
           :key="prod.id"
           class="bg-white dark:bg-[#121824] rounded-3xl border border-slate-200/80 dark:border-white/10 p-4 sm:p-5 shadow-sm flex flex-col justify-between transition hover:border-amber-500/30 group"
+          :class="{ 'opacity-65': !prod.active }"
         >
           <div>
             <!-- Top Product Image & Category Badge -->
@@ -696,7 +948,7 @@ onMounted(async () => {
               </div>
 
               <!-- Quick Expiration Warning Badge Top-Right (if any) -->
-              <div v-if="getExpirationStatus(prod.expirationDate).status !== 'NORMAL'" class="absolute top-2.5 right-2.5">
+              <div v-if="getExpirationStatus(prod.expirationDate).status !== 'NORMAL' && getExpirationStatus(prod.expirationDate).status !== 'NONE'" class="absolute top-2.5 right-2.5">
                 <span 
                   v-if="getExpirationStatus(prod.expirationDate).status === 'EXPIRED'"
                   class="text-[10px] font-black px-2 py-1 rounded-lg bg-rose-500 text-white shadow-sm flex items-center gap-1"
@@ -707,32 +959,56 @@ onMounted(async () => {
                   v-else
                   class="text-[10px] font-black px-2 py-1 rounded-lg bg-amber-500 text-slate-950 shadow-sm flex items-center gap-1"
                 >
-                  <Clock class="w-3 h-3" /> Vence em {{ getExpirationStatus(prod.expirationDate).days }}d
+                  <Clock class="w-3 h-3" /> {{ getExpirationStatus(prod.expirationDate).label }}
+                </span>
+              </div>
+
+              <!-- Inactive Badge Overlay -->
+              <div v-if="!prod.active" class="absolute bottom-2.5 left-2.5">
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-500/80 text-white backdrop-blur-sm">
+                  Pausado
                 </span>
               </div>
             </div>
 
             <!-- Title & Barcode/Batch -->
             <div class="mb-3">
-              <h3 class="text-sm font-extrabold text-slate-900 dark:text-white leading-tight line-clamp-2">
-                {{ prod.name }}
-              </h3>
+              <div class="flex items-start justify-between gap-2">
+                <h3 class="text-sm font-extrabold text-slate-900 dark:text-white leading-tight line-clamp-2">
+                  {{ prod.name }}
+                </h3>
+                
+                <!-- Quick Active Toggle Pill -->
+                <button 
+                  @click="handleToggleProductActive(prod)"
+                  class="shrink-0 p-1 rounded-lg transition cursor-pointer"
+                  :class="prod.active ? 'text-emerald-500 hover:bg-emerald-500/10' : 'text-slate-400 hover:bg-white/10'"
+                  :title="prod.active ? 'Clique para pausar produto' : 'Clique para ativar produto'"
+                >
+                  <Power class="w-4 h-4" />
+                </button>
+              </div>
               
-              <!-- Batch & Barcode details (if present) -->
-              <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-1">
+              <!-- Batch & Barcode details -->
+              <div class="flex flex-wrap items-center gap-2 text-[10px] text-slate-400 mt-1">
                 <span v-if="prod.barcode" class="flex items-center gap-0.5">
                   <Barcode class="w-3 h-3" /> {{ prod.barcode }}
                 </span>
-                <span v-if="prod.batchCode" class="px-1.5 py-0.2 rounded bg-slate-100 dark:bg-white/5">
-                  Lote: {{ prod.batchCode }}
-                </span>
+                <button 
+                  @click="openBatchListModal(prod)"
+                  class="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5 hover:bg-amber-500/10 text-amber-500 font-bold transition flex items-center gap-1 cursor-pointer"
+                  title="Ver todos os lotes deste produto"
+                >
+                  <Boxes class="w-3 h-3" />
+                  <span>{{ prod.activeBatchesCount || 1 }} lote(s)</span>
+                </button>
               </div>
             </div>
 
             <!-- Stock Level Progress Bar & Badge -->
             <div class="p-3 rounded-2xl bg-slate-50 dark:bg-[#07090e] border border-slate-100 dark:border-white/5 mb-3">
               <div class="flex items-center justify-between text-xs mb-1.5">
-                <span class="text-[11px] font-bold text-slate-400">Estoque:</span>
+                <span class="text-[11px] font-bold text-slate-400">Estoque Geral:</span>
                 <span 
                   class="font-black font-mono text-xs"
                   :class="[
@@ -759,12 +1035,12 @@ onMounted(async () => {
               </div>
 
               <div class="flex items-center justify-between text-[10px] text-slate-400 mt-1.5">
-                <span>Alerta mínimo: {{ prod.minStockAlert }} un.</span>
+                <span>Alerta mín: {{ prod.minStockAlert }} un.</span>
                 <button 
-                  @click="openStockModal(prod)"
-                  class="text-amber-500 font-bold hover:underline cursor-pointer"
+                  @click="openBatchModal(prod)"
+                  class="text-emerald-500 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
                 >
-                  + Ajustar
+                  <Plus class="w-3 h-3" /> Entrada Lote
                 </button>
               </div>
             </div>
@@ -807,11 +1083,21 @@ onMounted(async () => {
             <!-- Sell Button -->
             <button 
               @click="openSellModal(prod.id)"
-              class="flex-1 py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-slate-950 font-black text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+              :disabled="!prod.active"
+              class="flex-1 py-2 px-3 rounded-xl bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-slate-950 font-black text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
               title="Vender no balcão"
             >
               <ShoppingBag class="w-3.5 h-3.5" />
               <span>Vender</span>
+            </button>
+
+            <!-- Lotes Button -->
+            <button 
+              @click="openBatchListModal(prod)"
+              class="p-2 rounded-xl text-slate-400 hover:text-amber-500 hover:bg-amber-500/10 transition cursor-pointer"
+              title="Inspecionar lotes e validades"
+            >
+              <Boxes class="w-4 h-4" />
             </button>
 
             <!-- Edit Button -->
@@ -825,7 +1111,7 @@ onMounted(async () => {
 
             <!-- Delete Button -->
             <button 
-              @click="handleDeleteProduct(prod)"
+              @click="openDeleteModal(prod)"
               class="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
               title="Desativar produto"
             >
@@ -837,34 +1123,127 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- ================= VIEW MODE 2: LIST / TABLE VIEW ================= -->
-    <div v-else class="bg-white dark:bg-[#121824] rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm overflow-hidden">
+    <!-- ================= VIEW MODE 2: DATATABLE COM PAGINAÇÃO E ORDENAÇÃO ================= -->
+    <div v-else class="bg-white dark:bg-[#121824] rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm overflow-hidden flex flex-col">
       <!-- Loading indicator -->
       <div v-if="isLoading" class="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
         <RefreshCw class="w-8 h-8 animate-spin text-amber-500" />
-        <span class="text-xs font-bold">Carregando catálogo...</span>
+        <span class="text-xs font-bold">Carregando catálogo de produtos...</span>
       </div>
 
-      <!-- Table View -->
+      <!-- Empty state -->
+      <div v-else-if="sortedProducts.length === 0" class="p-12 text-center">
+        <div class="w-14 h-14 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto mb-3">
+          <Package class="w-7 h-7" />
+        </div>
+        <h3 class="text-sm font-extrabold text-slate-900 dark:text-white">Nenhum produto encontrado</h3>
+        <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+          Tente ajustar os filtros de categoria, status ou o termo de busca.
+        </p>
+      </div>
+
+      <!-- Datatable -->
       <div v-else class="overflow-x-auto no-scrollbar">
         <table class="w-full text-left border-collapse">
           <thead>
-            <tr class="border-b border-slate-200/80 dark:border-white/10 bg-slate-50/50 dark:bg-[#07090e]/40 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-              <th class="p-4">Produto</th>
-              <th class="p-4">Categoria</th>
-              <th class="p-4 text-center">Estoque</th>
-              <th class="p-4">Custo</th>
-              <th class="p-4">Venda</th>
-              <th class="p-4">Comissão Barbeiro</th>
-              <th class="p-4">Validade / Lote</th>
+            <tr class="border-b border-slate-200/80 dark:border-white/10 bg-slate-50/70 dark:bg-[#07090e]/60 text-[11px] font-bold text-slate-400 uppercase tracking-wider select-none">
+              
+              <!-- Produto -->
+              <th @click="setSort('name')" class="p-4 cursor-pointer hover:text-slate-900 dark:hover:text-white transition">
+                <div class="flex items-center gap-1.5">
+                  <span>Produto</span>
+                  <ArrowUp v-if="sortField === 'name' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'name' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3.5 h-3.5 opacity-40" />
+                </div>
+              </th>
+
+              <!-- Categoria -->
+              <th @click="setSort('category')" class="p-4 cursor-pointer hover:text-slate-900 dark:hover:text-white transition">
+                <div class="flex items-center gap-1.5">
+                  <span>Categoria</span>
+                  <ArrowUp v-if="sortField === 'category' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'category' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3.5 h-3.5 opacity-40" />
+                </div>
+              </th>
+
+              <!-- Estoque -->
+              <th @click="setSort('stockQuantity')" class="p-4 text-center cursor-pointer hover:text-slate-900 dark:hover:text-white transition">
+                <div class="flex items-center justify-center gap-1.5">
+                  <span>Estoque</span>
+                  <ArrowUp v-if="sortField === 'stockQuantity' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'stockQuantity' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3.5 h-3.5 opacity-40" />
+                </div>
+              </th>
+
+              <!-- Lotes -->
+              <th class="p-4 text-center">
+                <span>Lotes (FEFO)</span>
+              </th>
+
+              <!-- Custo -->
+              <th @click="setSort('costPrice')" class="p-4 cursor-pointer hover:text-slate-900 dark:hover:text-white transition">
+                <div class="flex items-center gap-1.5">
+                  <span>Custo</span>
+                  <ArrowUp v-if="sortField === 'costPrice' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'costPrice' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3.5 h-3.5 opacity-40" />
+                </div>
+              </th>
+
+              <!-- Venda -->
+              <th @click="setSort('salePrice')" class="p-4 cursor-pointer hover:text-slate-900 dark:hover:text-white transition">
+                <div class="flex items-center gap-1.5">
+                  <span>Venda</span>
+                  <ArrowUp v-if="sortField === 'salePrice' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'salePrice' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3.5 h-3.5 opacity-40" />
+                </div>
+              </th>
+
+              <!-- Comissão Barbeiro -->
+              <th @click="setSort('commissionPercentage')" class="p-4 cursor-pointer hover:text-slate-900 dark:hover:text-white transition">
+                <div class="flex items-center gap-1.5">
+                  <span>Comissão</span>
+                  <ArrowUp v-if="sortField === 'commissionPercentage' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'commissionPercentage' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3.5 h-3.5 opacity-40" />
+                </div>
+              </th>
+
+              <!-- Validade Próxima -->
+              <th @click="setSort('expirationDate')" class="p-4 cursor-pointer hover:text-slate-900 dark:hover:text-white transition">
+                <div class="flex items-center gap-1.5">
+                  <span>Validade</span>
+                  <ArrowUp v-if="sortField === 'expirationDate' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'expirationDate' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3.5 h-3.5 opacity-40" />
+                </div>
+              </th>
+
+              <!-- Status Ativo -->
+              <th @click="setSort('active')" class="p-4 text-center cursor-pointer hover:text-slate-900 dark:hover:text-white transition">
+                <div class="flex items-center justify-center gap-1.5">
+                  <span>Status</span>
+                  <ArrowUp v-if="sortField === 'active' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'active' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3.5 h-3.5 opacity-40" />
+                </div>
+              </th>
+
+              <!-- Ações -->
               <th class="p-4 text-right">Ações</th>
             </tr>
           </thead>
+
           <tbody class="divide-y divide-slate-100 dark:divide-white/5 text-xs">
             <tr 
-              v-for="prod in filteredProducts" 
+              v-for="prod in paginatedProducts" 
               :key="prod.id"
               class="hover:bg-amber-500/[0.02] transition"
+              :class="{ 'opacity-60': !prod.active }"
             >
               <!-- Name & Photo -->
               <td class="p-4">
@@ -886,7 +1265,7 @@ onMounted(async () => {
 
               <!-- Category -->
               <td class="p-4">
-                <span class="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-300">
+                <span class="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 whitespace-nowrap">
                   {{ prod.category }}
                 </span>
               </td>
@@ -899,6 +1278,18 @@ onMounted(async () => {
                 <div class="text-[10px] text-slate-400">
                   Mín: {{ prod.minStockAlert }}
                 </div>
+              </td>
+
+              <!-- Lotes Ativos -->
+              <td class="p-4 text-center">
+                <button 
+                  @click="openBatchListModal(prod)"
+                  class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-white/5 hover:bg-amber-500/10 text-amber-500 font-bold text-[11px] transition inline-flex items-center gap-1 cursor-pointer"
+                  title="Ver lotes deste produto"
+                >
+                  <Boxes class="w-3 h-3" />
+                  <span>{{ prod.activeBatchesCount || 1 }}</span>
+                </button>
               </td>
 
               <!-- Cost -->
@@ -925,11 +1316,24 @@ onMounted(async () => {
                   >
                     {{ prod.expirationDate.split('T')[0].split('-').reverse().join('/') }}
                   </span>
-                  <span v-if="prod.batchCode" class="text-[10px] text-slate-400 block">
+                  <span v-if="prod.batchCode" class="text-[10px] text-slate-400 block truncate max-w-[120px]">
                     Lote: {{ prod.batchCode }}
                   </span>
                 </div>
                 <span v-else class="text-slate-400 text-[11px]">—</span>
+              </td>
+
+              <!-- Status Toggle -->
+              <td class="p-4 text-center">
+                <button 
+                  @click="handleToggleProductActive(prod)"
+                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black transition cursor-pointer"
+                  :class="prod.active ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20' : 'bg-rose-500/10 text-rose-500 hover:bg-rose-500/20'"
+                  :title="prod.active ? 'Clique para pausar produto' : 'Clique para ativar produto'"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full" :class="prod.active ? 'bg-emerald-500' : 'bg-rose-500'"></span>
+                  <span>{{ prod.active ? 'Ativo' : 'Pausado' }}</span>
+                </button>
               </td>
 
               <!-- Actions -->
@@ -937,17 +1341,18 @@ onMounted(async () => {
                 <div class="flex items-center justify-end gap-1.5">
                   <button 
                     @click="openSellModal(prod.id)"
-                    class="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-slate-950 font-bold text-xs transition cursor-pointer"
-                    title="Vender item"
+                    :disabled="!prod.active"
+                    class="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-slate-950 font-bold text-xs transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Vender item no balcão"
                   >
                     Vender
                   </button>
                   <button 
-                    @click="openStockModal(prod)"
-                    class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-400 hover:text-white font-bold text-xs transition cursor-pointer"
-                    title="Ajustar estoque"
+                    @click="openBatchModal(prod)"
+                    class="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-slate-950 font-bold text-xs transition cursor-pointer"
+                    title="+ Entrada de lote"
                   >
-                    + Estoque
+                    + Lote
                   </button>
                   <button 
                     @click="openEditModal(prod)"
@@ -957,7 +1362,7 @@ onMounted(async () => {
                     <Edit3 class="w-4 h-4" />
                   </button>
                   <button 
-                    @click="handleDeleteProduct(prod)"
+                    @click="openDeleteModal(prod)"
                     class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
                     title="Remover"
                   >
@@ -968,6 +1373,90 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- ================= DATATABLE PAGINATION FOOTER ================= -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 border-t border-slate-200/80 dark:border-white/10 bg-slate-50/50 dark:bg-[#07090e]/40 text-xs">
+        <!-- Results counter & Page size selector -->
+        <div class="flex items-center gap-3 text-slate-500 dark:text-slate-400">
+          <span>
+            Mostrando 
+            <strong class="text-slate-900 dark:text-white">{{ paginationStartIndex }}</strong> 
+            a 
+            <strong class="text-slate-900 dark:text-white">{{ paginationEndIndex }}</strong> 
+            de 
+            <strong class="text-slate-900 dark:text-white">{{ sortedProducts.length }}</strong> 
+            produtos
+          </span>
+
+          <span class="text-slate-300 dark:text-white/10">|</span>
+
+          <div class="flex items-center gap-1.5">
+            <span>Exibir:</span>
+            <select 
+              v-model.number="itemsPerPage" 
+              class="px-2 py-1 rounded-lg bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
+            >
+              <option v-for="opt in pageSizeOptions" :key="opt" :value="opt">{{ opt }}</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Page navigation buttons -->
+        <div class="flex items-center gap-1">
+          <!-- First -->
+          <button 
+            @click="goToPage(1)" 
+            :disabled="currentPage === 1"
+            class="p-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Primeira página"
+          >
+            <ChevronsLeft class="w-4 h-4" />
+          </button>
+
+          <!-- Prev -->
+          <button 
+            @click="goToPage(currentPage - 1)" 
+            :disabled="currentPage === 1"
+            class="p-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Página anterior"
+          >
+            <ChevronLeft class="w-4 h-4" />
+          </button>
+
+          <!-- Pages -->
+          <template v-for="(p, idx) in displayedPages" :key="idx">
+            <span v-if="p === '...'" class="px-1.5 text-slate-400">...</span>
+            <button 
+              v-else 
+              @click="goToPage(Number(p))"
+              class="min-w-[28px] h-7 px-2 rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center font-mono"
+              :class="currentPage === p ? 'bg-amber-500 text-slate-950 font-black shadow-sm' : 'border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
+            >
+              {{ p }}
+            </button>
+          </template>
+
+          <!-- Next -->
+          <button 
+            @click="goToPage(currentPage + 1)" 
+            :disabled="currentPage === totalPages"
+            class="p-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Próxima página"
+          >
+            <ChevronRight class="w-4 h-4" />
+          </button>
+
+          <!-- Last -->
+          <button 
+            @click="goToPage(totalPages)" 
+            :disabled="currentPage === totalPages"
+            class="p-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Última página"
+          >
+            <ChevronsRight class="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -998,7 +1487,7 @@ onMounted(async () => {
           </div>
           <button 
             @click="isProductModalOpen = false" 
-            class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition"
+            class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition cursor-pointer"
           >
             <X class="w-5 h-5" />
           </button>
@@ -1153,7 +1642,7 @@ onMounted(async () => {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Número do Lote
+                Número / Código do Lote Inicial
               </label>
               <input 
                 v-model="form.batchCode" 
@@ -1257,6 +1746,296 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- ================= MODAL: ENTRADA DE LOTE / REPOSIÇÃO (FEFO) ================= -->
+    <div 
+      v-if="isBatchModalOpen" 
+      class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto"
+    >
+      <div class="bg-white dark:bg-[#121824] border-t sm:border border-slate-200 dark:border-white/10 rounded-t-3xl sm:rounded-3xl w-full max-w-lg p-5 sm:p-7 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
+        
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/10">
+          <div class="flex items-center gap-2.5">
+            <div class="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+              <Boxes class="w-5 h-5 stroke-[2.2]" />
+            </div>
+            <div>
+              <h3 class="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
+                Entrada de Estoque / Lote
+              </h3>
+              <p class="text-xs text-slate-400">
+                Reposição de mercadoria com rastreabilidade de validade (FEFO)
+              </p>
+            </div>
+          </div>
+          <button @click="isBatchModalOpen = false" class="text-slate-400 hover:text-white p-1">
+            <X class="w-5 h-5" />
+          </button>
+        </div>
+
+        <form @submit.prevent="handleConfirmBatchEntry" class="mt-4 space-y-4">
+          <!-- Produto -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              Produto para Reposição *
+            </label>
+            <select 
+              v-model="selectedProductForBatch"
+              required
+              class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark]"
+            >
+              <option v-for="p in products" :key="p.id" :value="p">
+                {{ p.name }} (Estoque atual: {{ p.stockQuantity }} un.)
+              </option>
+            </select>
+          </div>
+
+          <!-- Quantidade e Custo -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Qtd. de Entrada (un.) *
+              </label>
+              <input 
+                v-model.number="batchForm.quantity" 
+                type="number" 
+                min="1" 
+                step="1"
+                required
+                class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 text-xs font-mono font-bold text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Custo Unitário (R$)
+              </label>
+              <input 
+                v-model.number="batchForm.costPrice" 
+                type="number" 
+                step="0.01" 
+                min="0"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 text-xs font-mono font-bold text-slate-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <!-- Código do Lote & Validade -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Identificador / Código do Lote
+              </label>
+              <input 
+                v-model="batchForm.batchCode" 
+                type="text" 
+                placeholder="Ex: LT-2026-04"
+                class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Data de Validade
+              </label>
+              <input 
+                v-model="batchForm.expirationDate" 
+                type="date" 
+                class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark]"
+              />
+            </div>
+          </div>
+
+          <!-- FEFO Explanatory Notice -->
+          <div class="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-600 dark:text-emerald-400 flex items-start gap-2.5">
+            <Sparkles class="w-4 h-4 shrink-0 mt-0.5" />
+            <span>
+              <strong>Inteligência FEFO Ativa:</strong> Nas próximas vendas ou atendimentos com este produto, o BarblyClub consumirá primeiro os lotes mais próximos de vencer.
+            </span>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-white/10">
+            <button 
+              type="button" 
+              @click="isBatchModalOpen = false" 
+              class="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+            >
+              Cancelar
+            </button>
+            <button 
+              type="submit" 
+              :disabled="isSubmittingBatch"
+              class="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-md shadow-emerald-500/20 disabled:opacity-50 cursor-pointer"
+            >
+              <Check v-if="!isSubmittingBatch" class="w-4 h-4 stroke-[3]" />
+              <RefreshCw v-else class="w-4 h-4 animate-spin" />
+              <span>Confirmar Entrada</span>
+            </button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+
+    <!-- ================= MODAL: INSPECIONAR LOTES DO PRODUTO ================= -->
+    <div 
+      v-if="isBatchListModalOpen && inspectedProduct" 
+      class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto"
+    >
+      <div class="bg-white dark:bg-[#121824] border-t sm:border border-slate-200 dark:border-white/10 rounded-t-3xl sm:rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col p-5 sm:p-7 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
+        
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/10 shrink-0">
+          <div>
+            <h3 class="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+              Lotes &amp; Validades: {{ inspectedProduct.name }}
+            </h3>
+            <p class="text-xs text-slate-400">
+              Estoque total atual: <strong class="text-amber-500">{{ inspectedProduct.stockQuantity }} un.</strong> • Ordenados por data de vencimento (FEFO)
+            </p>
+          </div>
+          <button @click="isBatchListModalOpen = false" class="text-slate-400 hover:text-white p-1">
+            <X class="w-5 h-5" />
+          </button>
+        </div>
+
+        <!-- Batches List -->
+        <div class="my-4 overflow-y-auto flex-1 no-scrollbar space-y-3">
+          <div v-if="isLoadingBatches" class="py-8 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
+            <RefreshCw class="w-6 h-6 animate-spin text-amber-500" />
+            <span class="text-xs">Carregando lotes...</span>
+          </div>
+
+          <div v-else-if="inspectedBatches.length === 0" class="py-8 text-center text-slate-400">
+            <Boxes class="w-10 h-10 mx-auto mb-2 text-slate-500 opacity-60" />
+            <p class="text-xs">Nenhum lote registrado individualmente para este produto ainda.</p>
+            <button 
+              @click="isBatchListModalOpen = false; openBatchModal(inspectedProduct)"
+              class="mt-3 px-3.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-slate-950 font-bold text-xs transition cursor-pointer"
+            >
+              + Dar Entrada de Lote
+            </button>
+          </div>
+
+          <div 
+            v-else 
+            v-for="batch in inspectedBatches" 
+            :key="batch.id"
+            class="p-4 rounded-2xl border transition"
+            :class="batch.currentQuantity > 0 ? 'bg-slate-50/80 dark:bg-[#07090e]/80 border-slate-200 dark:border-white/10' : 'bg-slate-100/40 dark:bg-white/[0.02] border-slate-200/50 dark:border-white/5 opacity-60'"
+          >
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-extrabold text-sm text-slate-900 dark:text-white">
+                    {{ batch.batchCode || 'LOTE-PADRÃO' }}
+                  </span>
+                  <span 
+                    class="text-[10px] font-bold px-2 py-0.5 rounded-md"
+                    :class="batch.currentQuantity > 0 ? 'bg-emerald-500/15 text-emerald-500' : 'bg-slate-500/15 text-slate-400'"
+                  >
+                    {{ batch.currentQuantity > 0 ? 'Com Estoque' : 'Esgotado' }}
+                  </span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-1">
+                  Entrada: {{ new Date(batch.createdAt).toLocaleDateString('pt-BR') }} • Custo unitário: R$ {{ Number(batch.costPrice).toFixed(2).replace('.', ',') }}
+                </div>
+              </div>
+
+              <!-- Saldo e Validade -->
+              <div class="flex sm:flex-col items-center sm:items-end justify-between gap-1">
+                <div class="text-xs">
+                  <span class="text-slate-400">Saldo: </span>
+                  <strong class="font-mono text-sm text-slate-900 dark:text-white">{{ batch.currentQuantity }}</strong>
+                  <span class="text-slate-400"> / {{ batch.initialQuantity }} un.</span>
+                </div>
+
+                <div>
+                  <span 
+                    v-if="batch.expirationDate"
+                    class="text-[11px] font-bold px-2 py-0.5 rounded-lg flex items-center gap-1"
+                    :class="[
+                      getExpirationStatus(batch.expirationDate).status === 'EXPIRED' ? 'bg-rose-500/15 text-rose-500' :
+                      getExpirationStatus(batch.expirationDate).status === 'NEAR' ? 'bg-amber-500/15 text-amber-500' :
+                      'bg-slate-100 dark:bg-white/5 text-slate-400'
+                    ]"
+                  >
+                    <Clock class="w-3 h-3" />
+                    <span>Validade: {{ batch.expirationDate.split('T')[0].split('-').reverse().join('/') }} ({{ getExpirationStatus(batch.expirationDate).label }})</span>
+                  </span>
+                  <span v-else class="text-[11px] text-slate-400 italic">Sem data de validade</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-white/10 shrink-0">
+          <button 
+            @click="isBatchListModalOpen = false; openBatchModal(inspectedProduct)"
+            class="px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-slate-950 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus class="w-4 h-4 stroke-[2.5]" />
+            <span>+ Nova Entrada para este Produto</span>
+          </button>
+
+          <button 
+            type="button" 
+            @click="isBatchListModalOpen = false" 
+            class="px-4 py-2 rounded-xl bg-slate-900 dark:bg-white/10 text-white font-bold text-xs"
+          >
+            Fechar
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ================= MODAL: EXCLUSÃO / DESATIVAÇÃO ESTILIZADA ================= -->
+    <div 
+      v-if="isDeleteModalOpen && productToDelete" 
+      class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+    >
+      <div class="bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 rounded-3xl w-full max-w-sm p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
+        
+        <div class="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-500 flex items-center justify-center mb-4">
+          <AlertCircle class="w-6 h-6 stroke-[2.2]" />
+        </div>
+
+        <h3 class="text-base font-black text-slate-900 dark:text-white">
+          Remover Produto?
+        </h3>
+        
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">
+          Deseja realmente desativar o produto <strong class="text-slate-900 dark:text-white">"{{ productToDelete.name }}"</strong> do catálogo?
+        </p>
+
+        <p class="text-[11px] text-slate-400 mt-1">
+          O histórico de vendas passadas, faturamento e relatórios contábeis permanecerão intactos.
+        </p>
+
+        <div class="flex items-center justify-end gap-2.5 mt-6 pt-3 border-t border-slate-100 dark:border-white/10">
+          <button 
+            type="button" 
+            @click="isDeleteModalOpen = false" 
+            class="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white cursor-pointer"
+          >
+            Cancelar
+          </button>
+          
+          <button 
+            type="button" 
+            @click="confirmDeleteProduct"
+            :disabled="isDeletingProduct"
+            class="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-400 text-white font-black text-xs transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-rose-500/20 disabled:opacity-50"
+          >
+            <Trash2 v-if="!isDeletingProduct" class="w-4 h-4" />
+            <RefreshCw v-else class="w-4 h-4 animate-spin" />
+            <span>{{ isDeletingProduct ? 'Removendo...' : 'Sim, Remover' }}</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
     <!-- ================= MODAL: AJUSTE RÁPIDO DE ESTOQUE ================= -->
     <div 
       v-if="isStockModalOpen && stockModalProduct" 
@@ -1284,7 +2063,7 @@ onMounted(async () => {
             <button 
               type="button" 
               @click="stockAdjustmentType = 'ADD'"
-              class="py-2 rounded-xl text-xs font-bold transition border"
+              class="py-2 rounded-xl text-xs font-bold transition border cursor-pointer"
               :class="stockAdjustmentType === 'ADD' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-500' : 'border-slate-200 dark:border-white/10 text-slate-400'"
             >
               + Entrada (Chegada)
@@ -1293,7 +2072,7 @@ onMounted(async () => {
             <button 
               type="button" 
               @click="stockAdjustmentType = 'REMOVE'"
-              class="py-2 rounded-xl text-xs font-bold transition border"
+              class="py-2 rounded-xl text-xs font-bold transition border cursor-pointer"
               :class="stockAdjustmentType === 'REMOVE' ? 'bg-rose-500/20 border-rose-500 text-rose-500' : 'border-slate-200 dark:border-white/10 text-slate-400'"
             >
               - Saída (Perda / Ajuste)
@@ -1316,14 +2095,14 @@ onMounted(async () => {
           <button 
             type="button" 
             @click="isStockModalOpen = false" 
-            class="px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-white"
+            class="px-3 py-2 rounded-xl text-xs text-slate-400 hover:text-white cursor-pointer"
           >
             Cancelar
           </button>
           <button 
             type="button" 
             @click="handleConfirmStockAdjustment"
-            class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs"
+            class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs cursor-pointer"
           >
             Confirmar Ajuste
           </button>
