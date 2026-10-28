@@ -153,6 +153,45 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('barber_org');
   }
 
+  async function forgotPassword(email: string) {
+    const res = await fetch('/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Falha ao solicitar recuperação de senha.');
+    }
+    return data;
+  }
+
+  async function verifyResetCode(email: string, code: string) {
+    const res = await fetch('/api/auth/verify-reset-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Código inválido ou expirado.');
+    }
+    return data;
+  }
+
+  async function resetPassword(payload: { email: string; code?: string; token?: string; newPassword: string }) {
+    const res = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Falha ao redefinir senha.');
+    }
+    return data;
+  }
+
   return {
     token,
     user,
@@ -166,5 +205,8 @@ export const useAuthStore = defineStore('auth', () => {
     fetchMe,
     completeOnboarding,
     logout,
+    forgotPassword,
+    verifyResetCode,
+    resetPassword,
   };
 });

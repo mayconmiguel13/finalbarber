@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { prisma } from '../db.js';
+import { evolutionManager } from '../services/evolutionApi.js';
 
 // Local storage fallback for development resilience
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -481,4 +482,203 @@ export async function authRoutes(app: FastifyInstance) {
       message: 'Onboarding concluído com sucesso!',
     };
   });
+
+  // 3. Solicitação de Recuperação de Senha (Esqueceu a Senha)
+  app.post('/auth/forgot-password', async (request: FastifyRequest, reply: FastifyReply) => {
+    const schema = z.object({
+      email: z.string().email('E-mail inválido'),
+    });
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'E-mail inválido.' });
+    }
+
+    const cleanEmail = parsed.data.email.toLowerCase().trim();
+
+    // Check if user exists
+    let user: any = null;
+    try {
+      user = await prisma.user.findUnique({
+        where: { email: cleanEmail },
+      });
+    } catch {}
+
+    if (!user) {
+      const localUsers = loadLocalUsers();
+      const found = localUsers.find(item => item.user.email === cleanEmail);
+      if (found) user = found.user;
+    }
+
+    // Support demo admin as well
+    if (!user && (cleanEmail === 'admin@barber.com' || cleanEmail === 'diego@atelier88.com.br')) {
+      user = {
+        name: 'Administrador Demo',
+        email: cleanEmail,
+        phone: '5511999999999',
+      };
+    }
+
+    if (!user) {
+      return reply.status(404).send({
+        error: 'Nenhum usuário encontrado com este e-mail. Verifique a digitação ou crie uma conta grátis.',
+      });
+    }
+
+    // Generate 6-digit verification code & secure token
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const token = 'rst_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+    const tokenId = 'tkn_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
+
+    await prisma.$queryRawUnsafe(`
+      INSERT INTO password_reset_tokens (id, email, code, token, expiresAt, used, createdAt)
+      VALUES (?, ?, ?, ?, ?, FALSE, NOW())
+    `, tokenId, cleanEmail, code, token, expiresAt);
+
+    // Try sending via WhatsApp if phone available
+    if (user?.phone) {
+      const cleanPhone = user.phone.replace(/\D/g, '');
+      const validPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+      const msg = `🔐 *Recuperação de Senha - BarblyClub*\n\n` +
+        `Olá ${user.name || 'Parceiro'}! Recebemos seu pedido para redefinir a senha.\n\n` +
+        `Seu código de segurança de 6 dígitos é: *${code}*\n\n` +
+        `Este código expira em 30 minutos. Se você não solicitou, ignore esta mensagem. 💈`;
+
+      try {
+        await evolutionManager.sendEvolutionTextMessage(validPhone, msg);
+      } catch (err) {
+        console.warn('[ForgotPassword] WhatsApp dispatch notice:', err);
+      }
+    }
+
+    console.log(`[ForgotPassword] Código de recuperação gerado para ${cleanEmail}: ${code}`);
+
+    return reply.send({
+      success: true,
+      message: 'Código de recuperação gerado com sucesso!',
+      email: cleanEmail,
+      previewCode: code,
+      token,
+    });
+  });
+
+  // 4. Validação do Código de 6 dígitos
+  app.post('/auth/verify-reset-code', async (request: FastifyRequest, reply: FastifyReply) => {
+    const schema = z.object({
+      email: z.string().email(),
+      code: z.string().min(4),
+    });
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Dados inválidos.' });
+    }
+
+    const cleanEmail = parsed.data.email.toLowerCase().trim();
+    const { code } = parsed.data;
+
+    const rows: any[] = await prisma.$queryRawUnsafe(`
+      SELECT id, token, expiresAt, used
+      FROM password_reset_tokens
+      WHERE email = ? AND code = ? AND used = FALSE AND expiresAt > NOW()
+      ORDER BY createdAt DESC
+      LIMIT 1
+    `, cleanEmail, code);
+
+    if (rows.length === 0) {
+      return reply.status(400).send({ error: 'Código inválido ou expirado. Solicite um novo código.' });
+    }
+
+    return reply.send({
+      success: true,
+      valid: true,
+      token: rows[0].token,
+    });
+  });
+
+  // 5. Redefinição de Senha
+  app.post('/auth/reset-password', async (request: FastifyRequest, reply: FastifyReply) => {
+    const schema = z.object({
+      email: z.string().email(),
+      code: z.string().optional(),
+      token: z.string().optional(),
+      newPassword: z.string().min(6, 'A nova senha deve ter no mínimo 6 caracteres'),
+    });
+
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'Dados inválidos.',
+        details: parsed.error.format(),
+      });
+    }
+
+    const cleanEmail = parsed.data.email.toLowerCase().trim();
+    const { code, token, newPassword } = parsed.data;
+
+    if (!code && !token) {
+      return reply.status(400).send({ error: 'Código ou token de verificação é obrigatório.' });
+    }
+
+    let rows: any[] = [];
+    if (code) {
+      rows = await prisma.$queryRawUnsafe(`
+        SELECT id, token, expiresAt, used
+        FROM password_reset_tokens
+        WHERE email = ? AND code = ? AND used = FALSE AND expiresAt > NOW()
+        ORDER BY createdAt DESC
+        LIMIT 1
+      `, cleanEmail, code);
+    } else if (token) {
+      rows = await prisma.$queryRawUnsafe(`
+        SELECT id, token, expiresAt, used
+        FROM password_reset_tokens
+        WHERE email = ? AND token = ? AND used = FALSE AND expiresAt > NOW()
+        ORDER BY createdAt DESC
+        LIMIT 1
+      `, cleanEmail, token);
+    }
+
+    if (rows.length === 0) {
+      return reply.status(400).send({
+        error: 'Código ou token de redefinição inválido ou expirado. Por favor, solicite novamente.',
+      });
+    }
+
+    const resetRecord = rows[0];
+    const newHash = await bcrypt.hash(newPassword, 10);
+
+    // Update in MySQL DB
+    try {
+      await prisma.user.update({
+        where: { email: cleanEmail },
+        data: { passwordHash: newHash },
+      });
+    } catch (err: any) {
+      console.warn('[ResetPassword] DB update notice:', err.message);
+    }
+
+    // Update in local fallback store
+    try {
+      const list = loadLocalUsers();
+      const found = list.find(item => item.user.email === cleanEmail);
+      if (found) {
+        found.user.passwordHash = newHash;
+        ensureDataDir();
+        fs.writeFileSync(USERS_STORE_FILE, JSON.stringify(list, null, 2), 'utf-8');
+      }
+    } catch {}
+
+    // Mark reset token as used
+    await prisma.$queryRawUnsafe(`
+      UPDATE password_reset_tokens SET used = TRUE WHERE id = ?
+    `, resetRecord.id);
+
+    return reply.send({
+      success: true,
+      message: 'Sua senha foi redefinida com sucesso! Você já pode entrar com a nova senha.',
+    });
+  });
+
 }
