@@ -10,7 +10,7 @@ export const barberOperationalStatusMap = new Map<string, {
 }>();
 
 export async function barbersRoutes(app: FastifyInstance) {
-  // GET /api/barbers - List all barbers of the organization
+  // GET /api/barbers - List all barbers of the organization (supports includeInactive)
   app.get('/barbers', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -20,10 +20,16 @@ export async function barbersRoutes(app: FastifyInstance) {
 
     const payload = (request as any).user;
     const orgId = payload.orgId;
+    const { includeInactive } = (request.query as any) || {};
+
+    const whereClause: any = { orgId };
+    if (includeInactive !== 'true' && includeInactive !== true) {
+      whereClause.active = true;
+    }
 
     try {
       const profiles = await prisma.barberProfile.findMany({
-        where: { orgId, active: true },
+        where: whereClause,
         include: {
           user: {
             select: {
@@ -36,28 +42,33 @@ export async function barbersRoutes(app: FastifyInstance) {
             },
           },
         },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ active: 'desc' }, { createdAt: 'asc' }],
       });
 
-      return profiles.map((p) => ({
-        id: p.id,
-        userId: p.userId,
-        name: p.user.name,
-        email: p.user.email,
-        phone: p.user.phone || '',
-        avatarUrl: p.user.avatarUrl || '',
-        nickname: p.nickname || p.user.name,
-        document: p.document || '',
-        pixKey: p.pixKey || '',
-        commissionRate: Number(p.commissionRate) || 50,
-        chair: p.chair || 'Cadeira 1',
-        specialties: p.specialties || 'Corte Degradê, Barba Terapia',
-        workingDays: p.workingDays || 'mon,tue,wed,thu,fri,sat',
-        customSchedule: p.customSchedule || null,
-        bio: p.bio || 'Especialista BarblyClub',
-        role: p.user.role,
-        active: p.active,
-      }));
+      return profiles.map((p) => {
+        const opStatus = barberOperationalStatusMap.get(p.id);
+        return {
+          id: p.id,
+          userId: p.userId,
+          name: p.user.name,
+          email: p.user.email,
+          phone: p.user.phone || '',
+          avatarUrl: p.user.avatarUrl || '',
+          nickname: p.nickname || p.user.name,
+          document: p.document || '',
+          pixKey: p.pixKey || '',
+          commissionRate: Number(p.commissionRate) || 50,
+          chair: p.chair || 'Cadeira 1',
+          specialties: p.specialties || 'Corte Degradê, Barba Terapia',
+          workingDays: p.workingDays || 'mon,tue,wed,thu,fri,sat',
+          customSchedule: p.customSchedule || null,
+          bio: p.bio || 'Especialista BarblyClub',
+          role: p.user.role,
+          active: p.active,
+          operationalStatus: opStatus?.status || 'AVAILABLE',
+          operationalMessage: opStatus?.message || 'Disponível',
+        };
+      });
     } catch (err: any) {
       console.error('[Barbers GET error]', err);
       return reply.status(500).send({ error: 'Erro ao buscar barbeiros no banco de dados.' });
@@ -73,7 +84,7 @@ export async function barbersRoutes(app: FastifyInstance) {
       let targetOrgId = queryOrgId;
 
       if (!targetOrgId) {
-        const firstOrg = await prisma.organization.findFirst({ select: { id: true } });
+        const firstOrg = await prisma.organization.findFirst({ orderBy: { createdAt: 'desc' }, select: { id: true } });
         targetOrgId = firstOrg?.id;
       }
 
@@ -251,8 +262,16 @@ export async function barbersRoutes(app: FastifyInstance) {
           workingDays: body.workingDays !== undefined ? body.workingDays : undefined,
           customSchedule: body.customSchedule !== undefined ? (body.customSchedule as any) : undefined,
           bio: body.bio !== undefined ? body.bio : undefined,
+          active: body.active !== undefined ? Boolean(body.active) : undefined,
         },
       });
+
+      if (body.active !== undefined) {
+        await prisma.user.update({
+          where: { id: existing.userId },
+          data: { active: Boolean(body.active) },
+        });
+      }
 
       return {
         success: true,
@@ -262,6 +281,52 @@ export async function barbersRoutes(app: FastifyInstance) {
     } catch (err: any) {
       console.error('[Barbers PUT error]', err);
       return reply.status(500).send({ error: 'Erro ao atualizar dados do profissional.' });
+    }
+  });
+
+
+  // PATCH /api/barbers/:id/toggle - Toggle active / paused status with multi-tenant check
+  app.patch('/barbers/:id/toggle', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload?.orgId;
+    const { id } = request.params;
+
+    try {
+      const existing = await prisma.barberProfile.findFirst({
+        where: { id, orgId },
+        include: { user: true },
+      });
+
+      if (!existing) {
+        return reply.status(404).send({ error: 'Profissional não encontrado nesta organização.' });
+      }
+
+      const newActive = !existing.active;
+
+      await prisma.barberProfile.update({
+        where: { id },
+        data: { active: newActive },
+      });
+
+      await prisma.user.update({
+        where: { id: existing.userId },
+        data: { active: newActive },
+      });
+
+      return {
+        success: true,
+        active: newActive,
+        message: newActive ? 'Profissional reativado na equipe com sucesso!' : 'Profissional pausado da equipe.',
+      };
+    } catch (err: any) {
+      console.error('[Barber Toggle error]', err);
+      return reply.status(500).send({ error: 'Erro ao alterar status do profissional.' });
     }
   });
 
@@ -291,6 +356,11 @@ export async function barbersRoutes(app: FastifyInstance) {
         data: { active: false },
       });
 
+      await prisma.user.update({
+        where: { id: existing.userId },
+        data: { active: false },
+      });
+
       return {
         success: true,
         message: 'Profissional desativado da equipe com sucesso.',
@@ -301,7 +371,7 @@ export async function barbersRoutes(app: FastifyInstance) {
   });
 
 
-  // POST /api/barbers/:id/status - Atualizar status operacional (Disponível, Pausa/Almoço, Limpeza)
+  // POST /api/barbers/:id/status - Atualizar status operacional (Disponível, Pausa/Almoço, Limpeza) com validação multi-tenant
   app.post('/barbers/:id/status', async (request: FastifyRequest<{
     Params: { id: string };
     Body: { status: 'AVAILABLE' | 'BREAK' | 'CLEANING'; message?: string };
@@ -312,11 +382,20 @@ export async function barbersRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Token inválido' });
     }
 
+    const payload = (request as any).user;
+    const orgId = payload?.orgId;
     const { id } = request.params;
     const { status, message } = request.body || {};
 
     if (!['AVAILABLE', 'BREAK', 'CLEANING'].includes(status)) {
       return reply.status(400).send({ error: 'Status operacional inválido. Use AVAILABLE, BREAK ou CLEANING.' });
+    }
+
+    const existing = await prisma.barberProfile.findFirst({
+      where: { id, orgId },
+    });
+    if (!existing) {
+      return reply.status(404).send({ error: 'Profissional não encontrado nesta organização.' });
     }
 
     let defaultMsg = 'Disponível';

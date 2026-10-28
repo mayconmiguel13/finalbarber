@@ -224,6 +224,8 @@ export interface Barber {
   bio: string;
   role: string;
   active: boolean;
+  operationalStatus?: 'AVAILABLE' | 'BREAK' | 'CLEANING';
+  operationalMessage?: string;
 }
 
 export interface Customer {
@@ -630,10 +632,20 @@ export const api = {
   },
 
   // ================= BARBERS API =================
-  async getBarbers(): Promise<Barber[]> {
-    const res = await fetch('/api/barbers', { headers: getAuthHeaders() });
+  async getBarbers(includeInactive = true): Promise<Barber[]> {
+    const res = await fetch(`/api/barbers${includeInactive ? '?includeInactive=true' : ''}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Falha ao carregar profissionais');
     return res.json();
+  },
+
+  async toggleBarberActive(id: string): Promise<{ success: boolean; active: boolean; message: string }> {
+    const res = await fetch(`/api/barbers/${id}/toggle`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao alterar status do profissional');
+    return resData;
   },
 
   async setBarberOperationalStatus(

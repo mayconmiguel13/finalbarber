@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
-import { 
+import { ref, reactive, computed, onMounted, watch } from 'vue';
+import {
+  Power,
   UserCheck, 
   Plus, 
   Scissors, 
@@ -154,6 +155,139 @@ function compressImage(file: File, maxWidth = 500, maxHeight = 500, quality = 0.
     reader.onerror = (err) => reject(err);
   });
 }
+
+
+// ================= STATUS FILTER & OPERACIONAL =================
+const selectedStatusFilter = ref<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+
+const inactiveBarbersCount = computed(() => {
+  return barbers.value.filter(b => b.active === false).length;
+});
+
+async function setOperationalStatus(barber: Barber, status: 'AVAILABLE' | 'BREAK' | 'CLEANING') {
+  playPopSound();
+  try {
+    await api.setBarberOperationalStatus(barber.id, status);
+    barber.operationalStatus = status;
+    if (status === 'AVAILABLE') {
+      barber.operationalMessage = 'Disponível';
+      toast.success(`${barber.name} está Disponível na bancada!`, 'Status da Bancada');
+    } else if (status === 'BREAK') {
+      barber.operationalMessage = 'Em Almoço / Pausa';
+      toast.info(`${barber.name} entrou em Almoço / Pausa.`, 'Status da Bancada');
+    } else if (status === 'CLEANING') {
+      barber.operationalMessage = 'Limpeza de Bancada';
+      toast.info(`${barber.name} está em Limpeza de Bancada.`, 'Status da Bancada');
+    }
+  } catch (err: any) {
+    toast.error(err.message || 'Erro ao alterar status operacional da cadeira', 'Erro');
+  }
+}
+
+async function toggleBarberStatus(barber: Barber) {
+  playPopSound();
+  try {
+    const res = await api.toggleBarberActive(barber.id);
+    barber.active = res.active;
+    if (res.active) {
+      toast.success(`Profissional "${barber.name}" reativado na equipe!`, 'Profissional Ativo');
+    } else {
+      toast.info(`Profissional "${barber.name}" pausado da equipe.`, 'Profissional Pausado');
+    }
+  } catch (err: any) {
+    toast.error(err.message || 'Erro ao alterar status do profissional', 'Erro');
+  }
+}
+
+// ================= DATATABLE & PAGINAÇÃO (BARBEIROS) =================
+const currentPage = ref(1);
+const itemsPerPage = ref(10);
+const pageSizeOptions = [5, 10, 20, 50];
+
+type BarberSortField = 'name' | 'chair' | 'commissionRate' | 'active' | 'operationalStatus';
+const sortField = ref<BarberSortField>('name');
+const sortOrder = ref<'asc' | 'desc'>('asc');
+
+function toggleSort(field: BarberSortField) {
+  playPopSound();
+  if (sortField.value === field) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField.value = field;
+    sortOrder.value = 'asc';
+  }
+}
+
+watch([searchQuery, selectedStatusFilter, itemsPerPage], () => {
+  currentPage.value = 1;
+});
+
+const sortedBarbers = computed(() => {
+  const list = [...filteredBarbers.value];
+  return list.sort((a, b) => {
+    let aVal: any = a[sortField.value];
+    let bVal: any = b[sortField.value];
+
+    if (sortField.value === 'commissionRate') {
+      aVal = Number(aVal) || 0;
+      bVal = Number(bVal) || 0;
+    } else if (sortField.value === 'active') {
+      aVal = a.active !== false ? 1 : 0;
+      bVal = b.active !== false ? 1 : 0;
+    } else {
+      aVal = String(aVal || '').toLowerCase();
+      bVal = String(bVal || '').toLowerCase();
+    }
+
+    if (aVal < bVal) return sortOrder.value === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortOrder.value === 'asc' ? 1 : -1;
+    return 0;
+  });
+});
+
+const totalPages = computed(() => {
+  const total = Math.ceil(sortedBarbers.value.length / itemsPerPage.value);
+  return total > 0 ? total : 1;
+});
+
+const paginatedBarbers = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage.value;
+  return sortedBarbers.value.slice(start, start + itemsPerPage.value);
+});
+
+const paginationStartIndex = computed(() => {
+  if (sortedBarbers.value.length === 0) return 0;
+  return (currentPage.value - 1) * itemsPerPage.value + 1;
+});
+
+const paginationEndIndex = computed(() => {
+  return Math.min(currentPage.value * itemsPerPage.value, sortedBarbers.value.length);
+});
+
+function goToPage(page: number) {
+  if (page >= 1 && page <= totalPages.value) {
+    playPopSound();
+    currentPage.value = page;
+  }
+}
+
+const displayedPages = computed(() => {
+  const total = totalPages.value;
+  const current = currentPage.value;
+  if (total <= 5) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  const pages: (number | string)[] = [1];
+  if (current > 3) pages.push('...');
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  for (let i = start; i <= end; i++) {
+    pages.push(i);
+  }
+  if (current < total - 2) pages.push('...');
+  pages.push(total);
+  return pages;
+});
 
 // ================= SIMULADOR LEI SALÃO-PARCEIRO =================
 const simServicePrice = ref<number>(60);
@@ -351,17 +485,22 @@ async function loadBarbers() {
   }
 }
 
-// Filtro de busca
+// Filtro de busca e status
 const filteredBarbers = computed(() => {
-  if (!searchQuery.value.trim()) return barbers.value;
-  const q = searchQuery.value.toLowerCase();
-  return barbers.value.filter((b) => 
-    b.name.toLowerCase().includes(q) ||
-    (b.nickname && b.nickname.toLowerCase().includes(q)) ||
-    (b.chair && b.chair.toLowerCase().includes(q)) ||
-    (b.specialties && b.specialties.toLowerCase().includes(q)) ||
-    (b.phone && b.phone.includes(q))
-  );
+  return barbers.value.filter((b) => {
+    if (selectedStatusFilter.value === 'ACTIVE' && b.active === false) return false;
+    if (selectedStatusFilter.value === 'INACTIVE' && b.active !== false) return false;
+
+    if (!searchQuery.value.trim()) return true;
+    const q = searchQuery.value.toLowerCase();
+    return (
+      b.name.toLowerCase().includes(q) ||
+      (b.nickname && b.nickname.toLowerCase().includes(q)) ||
+      (b.chair && b.chair.toLowerCase().includes(q)) ||
+      (b.specialties && b.specialties.toLowerCase().includes(q)) ||
+      (b.phone && b.phone.includes(q))
+    );
+  });
 });
 
 // Métricas de topo
@@ -810,25 +949,63 @@ onMounted(() => {
     </div>
 
     <!-- ============================================== -->
-    <!-- TOOLBAR: BUSCA E CONTROLE (CARDS / LISTA)      -->
+    <!-- TOOLBAR: BUSCA, STATUS FILTER & VIEW TOGGLE    -->
     <!-- ============================================== -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <!-- Search Input -->
-      <div class="relative flex-1 max-w-md">
-        <Search class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-        <input 
-          v-model="searchQuery"
-          type="text" 
-          placeholder="Buscar barbeiro por nome, cadeira, especialidade..."
-          class="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-white dark:bg-[#0e131d] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-amber-500 transition shadow-sm"
-        />
-        <button 
-          v-if="searchQuery" 
-          @click="searchQuery = ''; playPopSound()"
-          class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
-        >
-          <X class="w-3.5 h-3.5" />
-        </button>
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <!-- Left: Search Input & Filter Chips -->
+      <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 max-w-2xl">
+        <div class="relative flex-1 min-w-[240px]">
+          <Search class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input 
+            v-model="searchQuery"
+            type="text" 
+            placeholder="Buscar por nome, cadeira, especialidade..."
+            class="w-full pl-10 pr-9 py-2.5 rounded-2xl bg-white dark:bg-[#0e131d] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-amber-500 transition shadow-sm"
+          />
+          <button 
+            v-if="searchQuery" 
+            @click="searchQuery = ''; playPopSound()"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+          >
+            <X class="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <!-- Filter Chips: Todos / Ativos / Pausados -->
+        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+          <button 
+            @click="selectedStatusFilter = 'ALL'; playPopSound()"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer"
+            :class="selectedStatusFilter === 'ALL' ? 'bg-amber-500 text-black shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'"
+          >
+            <span>Todos</span>
+            <span class="text-[10px] ml-1 px-1.5 py-0.2 rounded-full" :class="selectedStatusFilter === 'ALL' ? 'bg-black/20 text-black' : 'bg-slate-200 dark:bg-white/10'">
+              {{ barbers.length }}
+            </span>
+          </button>
+
+          <button 
+            @click="selectedStatusFilter = 'ACTIVE'; playPopSound()"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer"
+            :class="selectedStatusFilter === 'ACTIVE' ? 'bg-amber-500 text-black shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'"
+          >
+            <span>Ativos</span>
+            <span class="text-[10px] ml-1 px-1.5 py-0.2 rounded-full" :class="selectedStatusFilter === 'ACTIVE' ? 'bg-black/20 text-black' : 'bg-slate-200 dark:bg-white/10'">
+              {{ activeBarbersCount }}
+            </span>
+          </button>
+
+          <button 
+            @click="selectedStatusFilter = 'INACTIVE'; playPopSound()"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition whitespace-nowrap cursor-pointer"
+            :class="selectedStatusFilter === 'INACTIVE' ? 'bg-amber-500 text-black shadow-sm font-black' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'"
+          >
+            <span>Pausados</span>
+            <span class="text-[10px] ml-1 px-1.5 py-0.2 rounded-full" :class="selectedStatusFilter === 'INACTIVE' ? 'bg-black/20 text-black' : 'bg-slate-200 dark:bg-white/10'">
+              {{ inactiveBarbersCount }}
+            </span>
+          </button>
+        </div>
       </div>
 
       <!-- Segmented Control (Cards vs Lista) -->
@@ -967,6 +1144,49 @@ onMounted(() => {
                 <span class="text-xs text-slate-500 dark:text-slate-400 font-medium block mt-1 truncate">
                   {{ barber.chair || 'Cadeira 1' }}
                 </span>
+
+                <!-- Status Operacional Cockpit (Livre, Almoço, Limpeza) -->
+                <div class="flex items-center gap-1 mt-2">
+                  <button 
+                    @click="setOperationalStatus(barber, 'AVAILABLE')"
+                    type="button"
+                    class="px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    :class="barber.operationalStatus === 'AVAILABLE' || !barber.operationalStatus 
+                      ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 font-black' 
+                      : 'bg-slate-100 dark:bg-white/5 text-slate-400 border-transparent hover:border-slate-300'"
+                    title="Definir cadeira como Disponível"
+                  >
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Livre</span>
+                  </button>
+
+                  <button 
+                    @click="setOperationalStatus(barber, 'BREAK')"
+                    type="button"
+                    class="px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    :class="barber.operationalStatus === 'BREAK' 
+                      ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/40 font-black' 
+                      : 'bg-slate-100 dark:bg-white/5 text-slate-400 border-transparent hover:border-slate-300'"
+                    title="Definir cadeira em Almoço / Pausa"
+                  >
+                    <span>☕</span>
+                    <span>Pausa</span>
+                  </button>
+
+                  <button 
+                    @click="setOperationalStatus(barber, 'CLEANING')"
+                    type="button"
+                    class="px-2 py-0.5 rounded-lg text-[10px] font-bold border transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    :class="barber.operationalStatus === 'CLEANING' 
+                      ? 'bg-sky-500/20 text-sky-600 dark:text-sky-400 border-sky-500/40 font-black' 
+                      : 'bg-slate-100 dark:bg-white/5 text-slate-400 border-transparent hover:border-slate-300'"
+                    title="Definir cadeira em Limpeza"
+                  >
+                    <span>🧹</span>
+                    <span>Limpeza</span>
+                  </button>
+                </div>
+
               </div>
             </div>
 
@@ -1058,7 +1278,17 @@ onMounted(() => {
             <span>Foto</span>
           </button>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1.5">
+            <button 
+              v-if="barber.role !== 'OWNER'"
+              @click="toggleBarberStatus(barber)"
+              class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-bold transition cursor-pointer"
+              :class="barber.active !== false ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/20' : 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/20'"
+              :title="barber.active !== false ? 'Pausar profissional da equipe' : 'Reativar profissional na equipe'"
+            >
+              <Power class="w-3.5 h-3.5" />
+            </button>
+
             <button 
               @click="openEditModal(barber)"
               class="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-xs font-bold text-slate-700 dark:text-slate-300 transition flex items-center gap-1.5 cursor-pointer shadow-xs"
@@ -1081,27 +1311,104 @@ onMounted(() => {
     </div>
 
     <!-- ============================================================== -->
-    <!-- VIEW 2: TABELA / LISTA DETALHADA                               -->
+    <!-- VIEW 2: TABELA / LISTA DETALHADA (DATATABLE COM PAGINAÇÃO)     -->
     <!-- ============================================================== -->
     <div v-else-if="viewMode === 'LIST'" class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl overflow-hidden shadow-sm dark:shadow-xl transition-colors">
+      
+      <!-- Datatable Top Bar (Itens por página & Contador) -->
+      <div class="px-6 py-3.5 border-b border-slate-100 dark:border-white/5 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-white/[0.01]">
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500 dark:text-slate-400">Exibir</span>
+          <select
+            v-model.number="itemsPerPage"
+            class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 cursor-pointer shadow-xs"
+          >
+            <option v-for="opt in pageSizeOptions" :key="opt" :value="opt">{{ opt }}</option>
+          </select>
+          <span class="text-xs text-slate-500 dark:text-slate-400">profissionais por página</span>
+        </div>
+
+        <div class="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+          <span>Total:</span>
+          <span class="font-bold text-slate-900 dark:text-white font-mono-num">{{ sortedBarbers.length }}</span>
+          <span>profissionais</span>
+          <span v-if="searchQuery || selectedStatusFilter !== 'ALL'" class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-bold ml-1">
+            Filtro ativo
+          </span>
+        </div>
+      </div>
+
       <div class="overflow-x-auto no-scrollbar">
         <table class="w-full text-left text-xs">
           <thead class="bg-slate-50 dark:bg-white/[0.02] border-b border-slate-200/80 dark:border-white/5 text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 tracking-wider">
             <tr>
-              <th class="py-4 px-6">Profissional</th>
-              <th class="py-4 px-4">Cargo &amp; Cadeira</th>
+              <th class="py-4 px-6 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleSort('name')" title="Ordenar por Nome">
+                <div class="flex items-center gap-1.5">
+                  <span>Profissional</span>
+                  <ArrowUp v-if="sortField === 'name' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'name' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                </div>
+              </th>
+              <th class="py-4 px-4 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleSort('chair')" title="Ordenar por Cargo/Cadeira">
+                <div class="flex items-center gap-1.5">
+                  <span>Cargo &amp; Cadeira</span>
+                  <ArrowUp v-if="sortField === 'chair' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'chair' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                </div>
+              </th>
+              <th class="py-4 px-4">Status da Bancada</th>
               <th class="py-4 px-4">WhatsApp</th>
-              <th class="py-4 px-4">Comissão (Split)</th>
-              <th class="py-4 px-4">Especialidades</th>
+              <th class="py-4 px-4 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleSort('commissionRate')" title="Ordenar por Comissão">
+                <div class="flex items-center gap-1.5">
+                  <span>Comissão (Split)</span>
+                  <ArrowUp v-if="sortField === 'commissionRate' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'commissionRate' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                </div>
+              </th>
               <th class="py-4 px-4">Escala &amp; Hoje</th>
+              <th class="py-4 px-4 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleSort('active')" title="Ordenar por Status na Equipe">
+                <div class="flex items-center gap-1.5">
+                  <span>Status Equipe</span>
+                  <ArrowUp v-if="sortField === 'active' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowDown v-else-if="sortField === 'active' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                  <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                </div>
+              </th>
               <th class="py-4 px-6 text-right">Ações</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-white/5">
+            <!-- Empty State -->
+            <tr v-if="paginatedBarbers.length === 0">
+              <td colspan="8" class="py-12 px-6 text-center">
+                <div class="flex flex-col items-center justify-center text-slate-400 gap-3">
+                  <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-white/5 flex items-center justify-center text-slate-400">
+                    <UserCheck class="w-6 h-6 stroke-[1.5]" />
+                  </div>
+                  <div class="space-y-1">
+                    <p class="text-sm font-bold text-slate-700 dark:text-slate-300">Nenhum profissional encontrado</p>
+                    <p class="text-xs text-slate-400 max-w-sm">Tente redefinir a pesquisa ou o filtro de status da equipe.</p>
+                  </div>
+                  <button
+                    v-if="searchQuery || selectedStatusFilter !== 'ALL'"
+                    @click="searchQuery = ''; selectedStatusFilter = 'ALL'; playPopSound()"
+                    class="mt-2 px-3.5 py-1.5 rounded-xl bg-amber-500 text-black text-xs font-bold hover:bg-amber-400 transition cursor-pointer"
+                  >
+                    Limpar Filtros
+                  </button>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Linhas Paginadas -->
             <tr 
-              v-for="barber in filteredBarbers" 
+              v-for="barber in paginatedBarbers" 
               :key="barber.id"
               class="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition group"
+              :class="{ 'opacity-65': barber.active === false }"
             >
               <!-- Foto + Nome -->
               <td class="py-4 px-6">
@@ -1146,6 +1453,47 @@ onMounted(() => {
                 <span class="text-xs text-slate-500 dark:text-slate-400">{{ barber.chair }}</span>
               </td>
 
+              <!-- Status Operacional da Bancada (Interativo) -->
+              <td class="py-4 px-4">
+                <div class="flex items-center gap-1">
+                  <button 
+                    @click="setOperationalStatus(barber, 'AVAILABLE')"
+                    class="px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    :class="barber.operationalStatus === 'AVAILABLE' || !barber.operationalStatus 
+                      ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 font-black' 
+                      : 'bg-slate-100 dark:bg-white/5 text-slate-400 border-transparent hover:border-slate-300'"
+                    title="Definir cadeira como Disponível"
+                  >
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Livre</span>
+                  </button>
+
+                  <button 
+                    @click="setOperationalStatus(barber, 'BREAK')"
+                    class="px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    :class="barber.operationalStatus === 'BREAK' 
+                      ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/40 font-black' 
+                      : 'bg-slate-100 dark:bg-white/5 text-slate-400 border-transparent hover:border-slate-300'"
+                    title="Definir cadeira em Almoço / Pausa"
+                  >
+                    <span>☕</span>
+                    <span>Pausa</span>
+                  </button>
+
+                  <button 
+                    @click="setOperationalStatus(barber, 'CLEANING')"
+                    class="px-2 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    :class="barber.operationalStatus === 'CLEANING' 
+                      ? 'bg-sky-500/20 text-sky-600 dark:text-sky-400 border-sky-500/40 font-black' 
+                      : 'bg-slate-100 dark:bg-white/5 text-slate-400 border-transparent hover:border-slate-300'"
+                    title="Definir cadeira em Limpeza"
+                  >
+                    <span>🧹</span>
+                    <span>Limpeza</span>
+                  </button>
+                </div>
+              </td>
+
               <!-- Contato / WhatsApp -->
               <td class="py-4 px-4">
                 <a 
@@ -1179,25 +1527,6 @@ onMounted(() => {
                 </div>
               </td>
 
-              <!-- Especialidades -->
-              <td class="py-4 px-4">
-                <div class="flex flex-wrap gap-1 max-w-xs">
-                  <span 
-                    v-for="(spec, i) in parseSpecialties(barber.specialties).slice(0, 2)" 
-                    :key="i"
-                    class="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300"
-                  >
-                    {{ spec }}
-                  </span>
-                  <span 
-                    v-if="parseSpecialties(barber.specialties).length > 2"
-                    class="text-[10px] text-slate-400 self-center"
-                  >
-                    +{{ parseSpecialties(barber.specialties).length - 2 }}
-                  </span>
-                </div>
-              </td>
-
               <!-- Escala Semanal e Status Hoje -->
               <td class="py-4 px-4">
                 <div class="flex gap-0.5 mb-1">
@@ -1216,6 +1545,23 @@ onMounted(() => {
                   :class="isWorkingToday(barber.workingDays) ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-white/5 text-slate-400'"
                 >
                   {{ isWorkingToday(barber.workingDays) ? 'Disponível Hoje' : 'Folga Hoje' }}
+                </span>
+              </td>
+
+              <!-- Status na Equipe (Ativo / Pausado) -->
+              <td class="py-4 px-4">
+                <button 
+                  v-if="barber.role !== 'OWNER'"
+                  @click="toggleBarberStatus(barber)"
+                  class="px-2.5 py-1 rounded-lg text-[11px] font-bold border transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  :class="barber.active !== false ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700 hover:bg-slate-300/60'"
+                  :title="barber.active !== false ? 'Clique para pausar este profissional' : 'Clique para reativar este profissional'"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full" :class="barber.active !== false ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                  {{ barber.active !== false ? 'Ativo' : 'Pausado' }}
+                </button>
+                <span v-else class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                  Titular
                 </span>
               </td>
 
@@ -1257,7 +1603,77 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
+
+      <!-- Datatable Pagination Footer -->
+      <div class="p-4 sm:px-6 sm:py-3.5 border-t border-slate-100 dark:border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50 dark:bg-white/[0.01]">
+        <div class="text-xs text-slate-500 dark:text-slate-400 order-2 sm:order-1 text-center sm:text-left">
+          Mostrando <strong class="text-slate-900 dark:text-white font-mono-num">{{ paginationStartIndex }}</strong> a <strong class="text-slate-900 dark:text-white font-mono-num">{{ paginationEndIndex }}</strong> de <strong class="text-slate-900 dark:text-white font-mono-num">{{ sortedBarbers.length }}</strong> profissionais
+        </div>
+
+        <!-- Page Navigation Buttons -->
+        <div class="flex items-center gap-1.5 order-1 sm:order-2">
+          <!-- Primeira Página -->
+          <button
+            @click="goToPage(1)"
+            :disabled="currentPage === 1"
+            class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Primeira Página"
+          >
+            <ChevronsLeft class="w-4 h-4" />
+          </button>
+
+          <!-- Página Anterior -->
+          <button
+            @click="goToPage(currentPage - 1)"
+            :disabled="currentPage === 1"
+            class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Página Anterior"
+          >
+            <ChevronLeft class="w-4 h-4" />
+          </button>
+
+          <!-- Números de Página -->
+          <div class="flex items-center gap-1">
+            <template v-for="(p, idx) in displayedPages" :key="idx">
+              <span v-if="p === '...'" class="px-2 text-slate-400 select-none text-xs">...</span>
+              <button
+                v-else
+                @click="goToPage(Number(p))"
+                class="min-w-[32px] h-8 px-2.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center font-mono-num"
+                :class="currentPage === p 
+                  ? 'bg-amber-500 text-black font-black shadow-md' 
+                  : 'border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
+              >
+                {{ p }}
+              </button>
+            </template>
+          </div>
+
+          <!-- Próxima Página -->
+          <button
+            @click="goToPage(currentPage + 1)"
+            :disabled="currentPage === totalPages"
+            class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Próxima Página"
+          >
+            <ChevronRight class="w-4 h-4" />
+          </button>
+
+          <!-- Última Página -->
+          <button
+            @click="goToPage(totalPages)"
+            :disabled="currentPage === totalPages"
+            class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+            title="Última Página"
+          >
+            <ChevronsRight class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
     </div>
+
+iv>
 
     <!-- ============================================================== -->
     <!-- MODAL RÁPIDO: ALTERAR FOTO DE PERFIL DO BARBEIRO               -->
