@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, reactive } from 'vue';
+import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue';
 import {
+  ChevronsLeft,
   Power,
   Play,
   Scissors, 
@@ -374,6 +375,187 @@ const filteredGalleryItems = computed(() => {
 
     return true;
   });
+});
+
+
+// ================= DATATABLE & PAGINAÇÃO DE SERVIÇOS =================
+const currentPage = ref(1);
+const itemsPerPage = ref(10);
+const pageSizeOptions = [5, 10, 20, 50];
+
+type ServiceSortField = 'name' | 'category' | 'durationMinutes' | 'price' | 'active';
+const sortField = ref<ServiceSortField>('name');
+const sortOrder = ref<'asc' | 'desc'>('asc');
+
+function toggleSort(field: ServiceSortField) {
+  playPopSound();
+  if (sortField.value === field) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortField.value = field;
+    sortOrder.value = 'asc';
+  }
+}
+
+watch([searchQuery, selectedCategory, itemsPerPage], () => {
+  currentPage.value = 1;
+});
+
+const sortedServices = computed(() => {
+  const list = [...filteredServices.value];
+  return list.sort((a, b) => {
+    let aVal: any = a[sortField.value];
+    let bVal: any = b[sortField.value];
+
+    if (sortField.value === 'price' || sortField.value === 'durationMinutes') {
+      aVal = Number(aVal) || 0;
+      bVal = Number(bVal) || 0;
+    } else if (sortField.value === 'active') {
+      aVal = a.active !== false ? 1 : 0;
+      bVal = b.active !== false ? 1 : 0;
+    } else {
+      aVal = String(aVal || '').toLowerCase();
+      bVal = String(bVal || '').toLowerCase();
+    }
+
+    if (aVal < bVal) return sortOrder.value === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortOrder.value === 'asc' ? 1 : -1;
+    return 0;
+  });
+});
+
+const totalPages = computed(() => {
+  const total = Math.ceil(sortedServices.value.length / itemsPerPage.value);
+  return total > 0 ? total : 1;
+});
+
+const paginatedServices = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage.value;
+  return sortedServices.value.slice(start, start + itemsPerPage.value);
+});
+
+const paginationStartIndex = computed(() => {
+  if (sortedServices.value.length === 0) return 0;
+  return (currentPage.value - 1) * itemsPerPage.value + 1;
+});
+
+const paginationEndIndex = computed(() => {
+  return Math.min(currentPage.value * itemsPerPage.value, sortedServices.value.length);
+});
+
+function goToPage(page: number) {
+  if (page >= 1 && page <= totalPages.value) {
+    playPopSound();
+    currentPage.value = page;
+  }
+}
+
+const displayedPages = computed(() => {
+  const total = totalPages.value;
+  const current = currentPage.value;
+  if (total <= 5) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  const pages: (number | string)[] = [1];
+  if (current > 3) pages.push('...');
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  for (let i = start; i <= end; i++) {
+    pages.push(i);
+  }
+  if (current < total - 2) pages.push('...');
+  pages.push(total);
+  return pages;
+});
+
+// ================= DATATABLE & PAGINAÇÃO DE GALERIA =================
+const galleryCurrentPage = ref(1);
+const galleryItemsPerPage = ref(10);
+const galleryPageSizeOptions = [5, 10, 20, 50];
+
+type GallerySortField = 'title' | 'barberName' | 'category' | 'likesCount' | 'whatsappAiEnabled';
+const gallerySortField = ref<GallerySortField>('title');
+const gallerySortOrder = ref<'asc' | 'desc'>('asc');
+
+function toggleGallerySort(field: GallerySortField) {
+  playPopSound();
+  if (gallerySortField.value === field) {
+    gallerySortOrder.value = gallerySortOrder.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    gallerySortField.value = field;
+    gallerySortOrder.value = 'asc';
+  }
+}
+
+watch([gallerySearchQuery, gallerySelectedBarber, gallerySelectedCategory, galleryItemsPerPage], () => {
+  galleryCurrentPage.value = 1;
+});
+
+const sortedGalleryItems = computed(() => {
+  const list = [...filteredGalleryItems.value];
+  return list.sort((a, b) => {
+    let aVal: any = a[gallerySortField.value];
+    let bVal: any = b[gallerySortField.value];
+
+    if (gallerySortField.value === 'likesCount') {
+      aVal = Number(aVal) || 0;
+      bVal = Number(bVal) || 0;
+    } else if (gallerySortField.value === 'whatsappAiEnabled') {
+      aVal = a.whatsappAiEnabled ? 1 : 0;
+      bVal = b.whatsappAiEnabled ? 1 : 0;
+    } else {
+      aVal = String(aVal || '').toLowerCase();
+      bVal = String(bVal || '').toLowerCase();
+    }
+
+    if (aVal < bVal) return gallerySortOrder.value === 'asc' ? -1 : 1;
+    if (aVal > bVal) return gallerySortOrder.value === 'asc' ? 1 : -1;
+    return 0;
+  });
+});
+
+const galleryTotalPages = computed(() => {
+  const total = Math.ceil(sortedGalleryItems.value.length / galleryItemsPerPage.value);
+  return total > 0 ? total : 1;
+});
+
+const paginatedGalleryItems = computed(() => {
+  const start = (galleryCurrentPage.value - 1) * galleryItemsPerPage.value;
+  return sortedGalleryItems.value.slice(start, start + galleryItemsPerPage.value);
+});
+
+const galleryPaginationStartIndex = computed(() => {
+  if (sortedGalleryItems.value.length === 0) return 0;
+  return (galleryCurrentPage.value - 1) * galleryItemsPerPage.value + 1;
+});
+
+const galleryPaginationEndIndex = computed(() => {
+  return Math.min(galleryCurrentPage.value * galleryItemsPerPage.value, sortedGalleryItems.value.length);
+});
+
+function goToGalleryPage(page: number) {
+  if (page >= 1 && page <= galleryTotalPages.value) {
+    playPopSound();
+    galleryCurrentPage.value = page;
+  }
+}
+
+const galleryDisplayedPages = computed(() => {
+  const total = galleryTotalPages.value;
+  const current = galleryCurrentPage.value;
+  if (total <= 5) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  const pages: (number | string)[] = [1];
+  if (current > 3) pages.push('...');
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  for (let i = start; i <= end; i++) {
+    pages.push(i);
+  }
+  if (current < total - 2) pages.push('...');
+  pages.push(total);
+  return pages;
 });
 
 // ================= CRUD SERVIÇOS =================
@@ -961,23 +1143,105 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- VIEW 2: LISTA / TABELA DE SERVIÇOS -->
+      <!-- VIEW 2: LISTA / TABELA DE SERVIÇOS (DATATABLE COM PAGINAÇÃO) -->
       <div v-else-if="serviceViewMode === 'LIST'" class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl overflow-hidden shadow-sm transition-colors">
+        
+        <!-- Datatable Top Controls (Itens por página & Contador) -->
+        <div class="px-6 py-3.5 border-b border-slate-100 dark:border-white/5 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-white/[0.01]">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500 dark:text-slate-400">Exibir</span>
+            <select
+              v-model.number="itemsPerPage"
+              class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 cursor-pointer shadow-xs"
+            >
+              <option v-for="opt in pageSizeOptions" :key="opt" :value="opt">{{ opt }}</option>
+            </select>
+            <span class="text-xs text-slate-500 dark:text-slate-400">serviços por página</span>
+          </div>
+
+          <div class="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+            <span>Total:</span>
+            <span class="font-bold text-slate-900 dark:text-white font-mono-num">{{ sortedServices.length }}</span>
+            <span>serviços</span>
+            <span v-if="searchQuery || selectedCategory !== 'Todos'" class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-bold ml-1">
+              Filtro ativo
+            </span>
+          </div>
+        </div>
+
         <div class="overflow-x-auto no-scrollbar">
           <table class="w-full text-left text-xs">
             <thead class="bg-slate-50 dark:bg-white/[0.02] border-b border-slate-200/80 dark:border-white/5 text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 tracking-wider">
               <tr>
-                <th class="py-4 px-6">Serviço</th>
-                <th class="py-4 px-4">Categoria</th>
-                <th class="py-4 px-4">Duração</th>
-                <th class="py-4 px-4">Preço</th>
+                <th class="py-4 px-6 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleSort('name')" title="Clique para ordenar por Nome">
+                  <div class="flex items-center gap-1.5">
+                    <span>Serviço</span>
+                    <ArrowUp v-if="sortField === 'name' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowDown v-else-if="sortField === 'name' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                  </div>
+                </th>
+                <th class="py-4 px-4 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleSort('category')" title="Clique para ordenar por Categoria">
+                  <div class="flex items-center gap-1.5">
+                    <span>Categoria</span>
+                    <ArrowUp v-if="sortField === 'category' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowDown v-else-if="sortField === 'category' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                  </div>
+                </th>
+                <th class="py-4 px-4 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleSort('durationMinutes')" title="Clique para ordenar por Duração">
+                  <div class="flex items-center gap-1.5">
+                    <span>Duração</span>
+                    <ArrowUp v-if="sortField === 'durationMinutes' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowDown v-else-if="sortField === 'durationMinutes' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                  </div>
+                </th>
+                <th class="py-4 px-4 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleSort('price')" title="Clique para ordenar por Preço">
+                  <div class="flex items-center gap-1.5">
+                    <span>Preço</span>
+                    <ArrowUp v-if="sortField === 'price' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowDown v-else-if="sortField === 'price' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                  </div>
+                </th>
                 <th class="py-4 px-4">Foto no Cardápio</th>
-                <th class="py-4 px-4">Status</th>
+                <th class="py-4 px-4 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleSort('active')" title="Clique para ordenar por Status">
+                  <div class="flex items-center gap-1.5">
+                    <span>Status</span>
+                    <ArrowUp v-if="sortField === 'active' && sortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowDown v-else-if="sortField === 'active' && sortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                  </div>
+                </th>
                 <th class="py-4 px-6 text-right">Ações</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-white/5">
-              <tr v-for="service in filteredServices" :key="service.id" class="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition">
+              <!-- Empty State -->
+              <tr v-if="paginatedServices.length === 0">
+                <td colspan="7" class="py-12 px-6 text-center">
+                  <div class="flex flex-col items-center justify-center text-slate-400 gap-3">
+                    <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-white/5 flex items-center justify-center text-slate-400">
+                      <Scissors class="w-6 h-6 stroke-[1.5]" />
+                    </div>
+                    <div class="space-y-1">
+                      <p class="text-sm font-bold text-slate-700 dark:text-slate-300">Nenhum serviço encontrado</p>
+                      <p class="text-xs text-slate-400 max-w-sm">Tente redefinir os filtros ou a busca para localizar seus serviços.</p>
+                    </div>
+                    <button
+                      v-if="searchQuery || selectedCategory !== 'Todos'"
+                      @click="searchQuery = ''; selectedCategory = 'Todos'; playPopSound()"
+                      class="mt-2 px-3.5 py-1.5 rounded-xl bg-amber-500 text-black text-xs font-bold hover:bg-amber-400 transition cursor-pointer"
+                    >
+                      Limpar Filtros
+                    </button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Linhas Paginadas -->
+              <tr v-for="service in paginatedServices" :key="service.id" class="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition">
                 <td class="py-4 px-6">
                   <div class="flex items-center gap-3">
                     <div class="w-11 h-11 rounded-xl overflow-hidden ring-1 ring-slate-200 dark:ring-white/10 bg-slate-100 dark:bg-black/50 shrink-0">
@@ -1034,6 +1298,74 @@ onUnmounted(() => {
             </tbody>
           </table>
         </div>
+
+        <!-- Datatable Pagination Footer -->
+        <div class="p-4 sm:px-6 sm:py-3.5 border-t border-slate-100 dark:border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50 dark:bg-white/[0.01]">
+          <div class="text-xs text-slate-500 dark:text-slate-400 order-2 sm:order-1 text-center sm:text-left">
+            Mostrando <strong class="text-slate-900 dark:text-white font-mono-num">{{ paginationStartIndex }}</strong> a <strong class="text-slate-900 dark:text-white font-mono-num">{{ paginationEndIndex }}</strong> de <strong class="text-slate-900 dark:text-white font-mono-num">{{ sortedServices.length }}</strong> serviços
+          </div>
+
+          <!-- Page Navigation Buttons -->
+          <div class="flex items-center gap-1.5 order-1 sm:order-2">
+            <!-- Primeira Página -->
+            <button
+              @click="goToPage(1)"
+              :disabled="currentPage === 1"
+              class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="Primeira Página"
+            >
+              <ChevronsLeft class="w-4 h-4" />
+            </button>
+
+            <!-- Página Anterior -->
+            <button
+              @click="goToPage(currentPage - 1)"
+              :disabled="currentPage === 1"
+              class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="Página Anterior"
+            >
+              <ChevronLeft class="w-4 h-4" />
+            </button>
+
+            <!-- Números de Página -->
+            <div class="flex items-center gap-1">
+              <template v-for="(p, idx) in displayedPages" :key="idx">
+                <span v-if="p === '...'" class="px-2 text-slate-400 select-none text-xs">...</span>
+                <button
+                  v-else
+                  @click="goToPage(Number(p))"
+                  class="min-w-[32px] h-8 px-2.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center font-mono-num"
+                  :class="currentPage === p 
+                    ? 'bg-amber-500 text-black font-black shadow-md' 
+                    : 'border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
+                >
+                  {{ p }}
+                </button>
+              </template>
+            </div>
+
+            <!-- Próxima Página -->
+            <button
+              @click="goToPage(currentPage + 1)"
+              :disabled="currentPage === totalPages"
+              class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="Próxima Página"
+            >
+              <ChevronRight class="w-4 h-4" />
+            </button>
+
+            <!-- Última Página -->
+            <button
+              @click="goToPage(totalPages)"
+              :disabled="currentPage === totalPages"
+              class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="Última Página"
+            >
+              <ChevronsRight class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1245,23 +1577,98 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- VIEW 2: LISTA / TABELA DA GALERIA -->
+      <!-- VIEW 2: LISTA / TABELA DA GALERIA (DATATABLE COM PAGINAÇÃO) -->
       <div v-else-if="galleryViewMode === 'LIST'" class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl overflow-hidden shadow-sm transition-colors">
+        
+        <!-- Datatable Top Controls (Itens por página & Contador) -->
+        <div class="px-6 py-3.5 border-b border-slate-100 dark:border-white/5 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50 dark:bg-white/[0.01]">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-slate-500 dark:text-slate-400">Exibir</span>
+            <select
+              v-model.number="galleryItemsPerPage"
+              class="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 cursor-pointer shadow-xs"
+            >
+              <option v-for="opt in galleryPageSizeOptions" :key="opt" :value="opt">{{ opt }}</option>
+            </select>
+            <span class="text-xs text-slate-500 dark:text-slate-400">fotos por página</span>
+          </div>
+
+          <div class="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+            <span>Total:</span>
+            <span class="font-bold text-slate-900 dark:text-white font-mono-num">{{ sortedGalleryItems.length }}</span>
+            <span>fotos</span>
+            <span v-if="gallerySearchQuery || gallerySelectedCategory !== 'Todos' || gallerySelectedBarber !== 'ALL'" class="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-bold ml-1">
+              Filtro ativo
+            </span>
+          </div>
+        </div>
+
         <div class="overflow-x-auto no-scrollbar">
           <table class="w-full text-left text-xs">
             <thead class="bg-slate-50 dark:bg-white/[0.02] border-b border-slate-200/80 dark:border-white/5 text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 tracking-wider">
               <tr>
-                <th class="py-4 px-6">Foto &amp; Título</th>
-                <th class="py-4 px-4">Barbeiro Autor</th>
-                <th class="py-4 px-4">Estilo / Categoria</th>
+                <th class="py-4 px-6 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleGallerySort('title')" title="Clique para ordenar por Título">
+                  <div class="flex items-center gap-1.5">
+                    <span>Foto &amp; Título</span>
+                    <ArrowUp v-if="gallerySortField === 'title' && gallerySortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowDown v-else-if="gallerySortField === 'title' && gallerySortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                  </div>
+                </th>
+                <th class="py-4 px-4 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleGallerySort('barberName')" title="Clique para ordenar por Barbeiro">
+                  <div class="flex items-center gap-1.5">
+                    <span>Barbeiro Autor</span>
+                    <ArrowUp v-if="gallerySortField === 'barberName' && gallerySortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowDown v-else-if="gallerySortField === 'barberName' && gallerySortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                  </div>
+                </th>
+                <th class="py-4 px-4 cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleGallerySort('category')" title="Clique para ordenar por Categoria">
+                  <div class="flex items-center gap-1.5">
+                    <span>Estilo / Categoria</span>
+                    <ArrowUp v-if="gallerySortField === 'category' && gallerySortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowDown v-else-if="gallerySortField === 'category' && gallerySortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                  </div>
+                </th>
                 <th class="py-4 px-4">Tags para IA</th>
-                <th class="py-4 px-4 text-center">Envio WhatsApp</th>
+                <th class="py-4 px-4 text-center cursor-pointer select-none hover:text-amber-500 transition group/th" @click="toggleGallerySort('whatsappAiEnabled')" title="Clique para ordenar por Envio WhatsApp">
+                  <div class="flex items-center justify-center gap-1.5">
+                    <span>Envio WhatsApp</span>
+                    <ArrowUp v-if="gallerySortField === 'whatsappAiEnabled' && gallerySortOrder === 'asc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowDown v-else-if="gallerySortField === 'whatsappAiEnabled' && gallerySortOrder === 'desc'" class="w-3.5 h-3.5 text-amber-500" />
+                    <ArrowUpDown v-else class="w-3 h-3 text-slate-400 opacity-50 group-hover/th:opacity-100" />
+                  </div>
+                </th>
                 <th class="py-4 px-4 text-center">Visualização</th>
                 <th class="py-4 px-6 text-right">Ações</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 dark:divide-white/5">
-              <tr v-for="item in filteredGalleryItems" :key="item.id" class="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition">
+              <!-- Empty State -->
+              <tr v-if="paginatedGalleryItems.length === 0">
+                <td colspan="7" class="py-12 px-6 text-center">
+                  <div class="flex flex-col items-center justify-center text-slate-400 gap-3">
+                    <div class="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-white/5 flex items-center justify-center text-slate-400">
+                      <ImageIcon class="w-6 h-6 stroke-[1.5]" />
+                    </div>
+                    <div class="space-y-1">
+                      <p class="text-sm font-bold text-slate-700 dark:text-slate-300">Nenhum trabalho na galeria encontrado</p>
+                      <p class="text-xs text-slate-400 max-w-sm">Tente redefinir a busca ou cadastre novas fotos do portfólio.</p>
+                    </div>
+                    <button
+                      v-if="gallerySearchQuery || gallerySelectedCategory !== 'Todos' || gallerySelectedBarber !== 'ALL'"
+                      @click="gallerySearchQuery = ''; gallerySelectedCategory = 'Todos'; gallerySelectedBarber = 'ALL'; playPopSound()"
+                      class="mt-2 px-3.5 py-1.5 rounded-xl bg-amber-500 text-black text-xs font-bold hover:bg-amber-400 transition cursor-pointer"
+                    >
+                      Limpar Filtros
+                    </button>
+                  </div>
+                </td>
+              </tr>
+
+              <!-- Linhas Paginadas da Galeria -->
+              <tr v-for="item in paginatedGalleryItems" :key="item.id" class="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition">
                 <td class="py-4 px-6">
                   <div class="flex items-center gap-3">
                     <div 
@@ -1343,6 +1750,74 @@ onUnmounted(() => {
             </tbody>
           </table>
         </div>
+
+        <!-- Datatable Pagination Footer (Galeria) -->
+        <div class="p-4 sm:px-6 sm:py-3.5 border-t border-slate-100 dark:border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50 dark:bg-white/[0.01]">
+          <div class="text-xs text-slate-500 dark:text-slate-400 order-2 sm:order-1 text-center sm:text-left">
+            Mostrando <strong class="text-slate-900 dark:text-white font-mono-num">{{ galleryPaginationStartIndex }}</strong> a <strong class="text-slate-900 dark:text-white font-mono-num">{{ galleryPaginationEndIndex }}</strong> de <strong class="text-slate-900 dark:text-white font-mono-num">{{ sortedGalleryItems.length }}</strong> fotos
+          </div>
+
+          <!-- Page Navigation Buttons -->
+          <div class="flex items-center gap-1.5 order-1 sm:order-2">
+            <!-- Primeira Página -->
+            <button
+              @click="goToGalleryPage(1)"
+              :disabled="galleryCurrentPage === 1"
+              class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="Primeira Página"
+            >
+              <ChevronsLeft class="w-4 h-4" />
+            </button>
+
+            <!-- Página Anterior -->
+            <button
+              @click="goToGalleryPage(galleryCurrentPage - 1)"
+              :disabled="galleryCurrentPage === 1"
+              class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="Página Anterior"
+            >
+              <ChevronLeft class="w-4 h-4" />
+            </button>
+
+            <!-- Números de Página -->
+            <div class="flex items-center gap-1">
+              <template v-for="(p, idx) in galleryDisplayedPages" :key="idx">
+                <span v-if="p === '...'" class="px-2 text-slate-400 select-none text-xs">...</span>
+                <button
+                  v-else
+                  @click="goToGalleryPage(Number(p))"
+                  class="min-w-[32px] h-8 px-2.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center justify-center font-mono-num"
+                  :class="galleryCurrentPage === p 
+                    ? 'bg-amber-500 text-black font-black shadow-md' 
+                    : 'border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
+                >
+                  {{ p }}
+                </button>
+              </template>
+            </div>
+
+            <!-- Próxima Página -->
+            <button
+              @click="goToGalleryPage(galleryCurrentPage + 1)"
+              :disabled="galleryCurrentPage === galleryTotalPages"
+              class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="Próxima Página"
+            >
+              <ChevronRight class="w-4 h-4" />
+            </button>
+
+            <!-- Última Página -->
+            <button
+              @click="goToGalleryPage(galleryTotalPages)"
+              :disabled="galleryCurrentPage === galleryTotalPages"
+              class="p-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="Última Página"
+            >
+              <ChevronsRight class="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
       </div>
     </div>
 
