@@ -542,7 +542,7 @@ async function handleSaveCustomer() {
     const cleanInsta = form.value.instagram.replace(/^@+/, '').trim();
     const payload = {
       name: form.value.name.trim(),
-      phone: form.value.phone.trim(),
+      phone: cleanPhone,
       email: form.value.email.trim() || undefined,
       birthDate: form.value.birthDate.trim() || undefined,
       instagram: cleanInsta ? `@${cleanInsta}` : undefined,
@@ -2527,7 +2527,7 @@ onMounted(() => {
         </p>
         <p class="text-[11px] text-amber-600 dark:text-amber-400 mt-2 bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 flex items-center justify-center gap-1.5">
           <AlertCircle class="w-4 h-4 shrink-0" />
-          <span>Essa ação apagará os dados do cliente e histórico registrado.</span>
+          <span>Clientes com histórico de atendimentos não podem ser excluídos para manter a integridade fiscal e de comissões.</span>
         </p>
 
         <div class="mt-6 flex items-center justify-center gap-3">

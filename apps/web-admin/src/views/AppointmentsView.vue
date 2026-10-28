@@ -932,6 +932,19 @@ function openCreateModal(defaultBarberId?: string, defaultTime?: string, default
   // Select first service by default
   selectedServiceIds.value = services.value.length > 0 ? [services.value[0].id] : [];
 
+  // Pre-fill customer from route query if navigated from Client Dossier
+  const queryCustId = route.query.customerId as string | undefined;
+  const queryCustName = route.query.customerName as string | undefined;
+  if (queryCustId && customers.value.length > 0) {
+    const found = customers.value.find(c => c.id === queryCustId);
+    if (found) {
+      selectCustomer(found);
+    }
+  } else if (queryCustName) {
+    newAppointment.clientName = queryCustName;
+    clientSearchQuery.value = queryCustName;
+  }
+
   isCreateModalOpen.value = true;
 }
 
@@ -1405,8 +1418,11 @@ async function handleConfirmCheckout() {
   }
 }
 
-watch(() => route.query.new, (newVal) => {
+watch(() => route.query.new, async (newVal) => {
   if (newVal === 'true') {
+    if (customers.value.length === 0) {
+      await loadCustomers();
+    }
     openCreateModal();
   }
 });

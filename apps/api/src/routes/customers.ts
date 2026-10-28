@@ -72,23 +72,29 @@ export async function customersRoutes(app: FastifyInstance) {
           daysSinceLastVisit = Math.floor(diffMs / (1000 * 60 * 60 * 24));
         }
 
-        // Aniversariante do mês / hoje
+        // Aniversariante do mês / hoje (com suporte robusto a DD/MM, DD-MM e YYYY-MM-DD)
         let isBirthdayMonth = false;
         let isBirthdayToday = false;
         if (c.birthDate) {
           let bMonth: number | null = null;
           let bDay: number | null = null;
-          if (c.birthDate.includes('-')) {
-            const parts = c.birthDate.split('-').map(Number);
+          const cleanBirth = c.birthDate.trim();
+          if (cleanBirth.includes('-')) {
+            const parts = cleanBirth.split('-').map(Number);
             if (parts.length === 3) {
               bMonth = parts[1];
               bDay = parts[2];
             } else if (parts.length === 2) {
-              bMonth = parts[0];
-              bDay = parts[1];
+              if (parts[0] > 12) {
+                bDay = parts[0];
+                bMonth = parts[1];
+              } else {
+                bMonth = parts[0];
+                bDay = parts[1];
+              }
             }
-          } else if (c.birthDate.includes('/')) {
-            const parts = c.birthDate.split('/').map(Number);
+          } else if (cleanBirth.includes('/')) {
+            const parts = cleanBirth.split('/').map(Number);
             if (parts.length >= 2) {
               bDay = parts[0];
               bMonth = parts[1];
@@ -344,7 +350,10 @@ export async function customersRoutes(app: FastifyInstance) {
     }
 
     const payload = (request as any).user;
-    const orgId = payload.orgId;
+    const orgId = payload?.orgId;
+    if (!orgId) {
+      return reply.status(400).send({ error: 'Organização não identificada no token.' });
+    }
 
     const schema = z.object({
       name: z.string().min(2, 'Nome é obrigatório'),
@@ -364,31 +373,36 @@ export async function customersRoutes(app: FastifyInstance) {
     }
 
     const data = parse.data;
+    const cleanPhone = data.phone.replace(/\D/g, '');
+
+    if (cleanPhone.length < 8) {
+      return reply.status(400).send({ error: 'Telefone / WhatsApp inválido.' });
+    }
 
     try {
       const existing = await prisma.customer.findUnique({
         where: {
           orgId_phone: {
             orgId,
-            phone: data.phone,
+            phone: cleanPhone,
           },
         },
       });
 
       if (existing) {
-        return reply.status(400).send({ error: 'Já existe um cliente cadastrado com este telefone/WhatsApp.' });
+        return reply.status(400).send({ error: 'Já existe um cliente cadastrado com este telefone/WhatsApp nesta organização.' });
       }
 
       const created = await prisma.customer.create({
         data: {
           orgId,
-          name: data.name,
-          phone: data.phone,
-          email: data.email || null,
-          birthDate: data.birthDate || null,
-          instagram: data.instagram || null,
-          avatarUrl: data.avatarUrl || null,
-          notes: data.notes || null,
+          name: data.name.trim(),
+          phone: cleanPhone,
+          email: data.email?.trim() || null,
+          birthDate: data.birthDate?.trim() || null,
+          instagram: data.instagram?.trim() || null,
+          avatarUrl: data.avatarUrl?.trim() || null,
+          notes: data.notes?.trim() || null,
           preferences: data.preferences ? (Array.isArray(data.preferences) ? data.preferences : [data.preferences]) : [],
           isVipMember: data.isVipMember,
         },
@@ -415,7 +429,7 @@ export async function customersRoutes(app: FastifyInstance) {
     }
   });
 
-  // PUT /api/customers/:id - Update customer
+  // PUT /api/customers/:id - Update customer with multi-tenant check and clean phone
   app.put('/customers/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -423,22 +437,55 @@ export async function customersRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Token inválido' });
     }
 
+    const payload = (request as any).user;
+    const orgId = payload?.orgId;
     const { id } = request.params;
     const body: any = request.body || {};
 
     try {
+      // 1. Multi-tenant security check
+      const existing = await prisma.customer.findFirst({
+        where: { id, orgId },
+      });
+
+      if (!existing) {
+        return reply.status(404).send({ error: 'Cliente não encontrado nesta organização.' });
+      }
+
+      // 2. Phone normalization and duplicate prevention
+      let cleanPhone = undefined;
+      if (body.phone !== undefined) {
+        cleanPhone = String(body.phone).replace(/\D/g, '');
+        if (cleanPhone.length < 8) {
+          return reply.status(400).send({ error: 'Telefone / WhatsApp inválido.' });
+        }
+        if (cleanPhone !== existing.phone) {
+          const conflict = await prisma.customer.findUnique({
+            where: {
+              orgId_phone: {
+                orgId,
+                phone: cleanPhone,
+              },
+            },
+          });
+          if (conflict) {
+            return reply.status(400).send({ error: 'Já existe outro cliente cadastrado com este telefone/WhatsApp.' });
+          }
+        }
+      }
+
       const updated = await prisma.customer.update({
         where: { id },
         data: {
-          name: body.name !== undefined ? body.name : undefined,
-          phone: body.phone !== undefined ? body.phone : undefined,
-          email: body.email !== undefined ? (body.email || null) : undefined,
-          birthDate: body.birthDate !== undefined ? (body.birthDate || null) : undefined,
-          instagram: body.instagram !== undefined ? (body.instagram || null) : undefined,
-          avatarUrl: body.avatarUrl !== undefined ? (body.avatarUrl || null) : undefined,
-          notes: body.notes !== undefined ? (body.notes || null) : undefined,
+          name: body.name !== undefined ? String(body.name).trim() : undefined,
+          phone: cleanPhone,
+          email: body.email !== undefined ? (body.email ? String(body.email).trim() : null) : undefined,
+          birthDate: body.birthDate !== undefined ? (body.birthDate ? String(body.birthDate).trim() : null) : undefined,
+          instagram: body.instagram !== undefined ? (body.instagram ? String(body.instagram).trim() : null) : undefined,
+          avatarUrl: body.avatarUrl !== undefined ? (body.avatarUrl ? String(body.avatarUrl).trim() : null) : undefined,
+          notes: body.notes !== undefined ? (body.notes ? String(body.notes).trim() : null) : undefined,
           preferences: body.preferences !== undefined ? (Array.isArray(body.preferences) ? body.preferences : [body.preferences]) : undefined,
-          isVipMember: body.isVipMember !== undefined ? body.isVipMember : undefined,
+          isVipMember: body.isVipMember !== undefined ? Boolean(body.isVipMember) : undefined,
         },
       });
 
@@ -453,7 +500,7 @@ export async function customersRoutes(app: FastifyInstance) {
     }
   });
 
-  // DELETE /api/customers/:id
+  // DELETE /api/customers/:id - Safe deletion with multi-tenant and foreign key protection
   app.delete('/customers/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -461,9 +508,45 @@ export async function customersRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Token inválido' });
     }
 
+    const payload = (request as any).user;
+    const orgId = payload?.orgId;
     const { id } = request.params;
 
     try {
+      // 1. Multi-tenant security check
+      const existing = await prisma.customer.findFirst({
+        where: { id, orgId },
+        include: {
+          _count: {
+            select: {
+              appointments: true,
+            },
+          },
+        },
+      });
+
+      if (!existing) {
+        return reply.status(404).send({ error: 'Cliente não encontrado nesta organização.' });
+      }
+
+      // 2. Foreign Key Protection: Check if customer has appointments or product sales
+      const appointmentsCount = existing._count.appointments;
+      
+      const productSalesCount: any[] = await prisma.$queryRawUnsafe(`
+        SELECT COUNT(*) as count FROM product_sales WHERE customerId = ? AND orgId = ?
+      `, id, orgId);
+      const salesCount = Number(productSalesCount?.[0]?.count) || 0;
+
+      if (appointmentsCount > 0 || salesCount > 0) {
+        const details = [];
+        if (appointmentsCount > 0) details.push(`${appointmentsCount} atendimento(s)`);
+        if (salesCount > 0) details.push(`${salesCount} compra(s) na comanda/frigobar`);
+
+        return reply.status(400).send({
+          error: `Não é possível excluir "${existing.name}" pois ele possui histórico registrado (${details.join(' e ')}). Para preservar os relatórios financeiros, fiscais e de comissões da barbearia, o registro deve ser mantido.`,
+        });
+      }
+
       await prisma.customer.delete({
         where: { id },
       });
@@ -473,6 +556,7 @@ export async function customersRoutes(app: FastifyInstance) {
         message: 'Cliente removido com sucesso.',
       };
     } catch (err: any) {
+      console.error('[Customers DELETE error]', err);
       return reply.status(500).send({ error: 'Erro ao remover cliente.' });
     }
   });
