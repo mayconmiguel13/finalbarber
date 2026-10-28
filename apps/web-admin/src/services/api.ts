@@ -337,6 +337,7 @@ export interface Service {
   description: string;
   category: string;
   photoUrl: string;
+  active?: boolean;
 }
 
 export interface GalleryItem {
@@ -728,10 +729,20 @@ export const api = {
   },
 
   // ================= SERVICES API =================
-  async getServices(): Promise<Service[]> {
-    const res = await fetch('/api/services', { headers: getAuthHeaders() });
+  async getServices(includeInactive = true): Promise<Service[]> {
+    const res = await fetch(`/api/services${includeInactive ? '?includeInactive=true' : ''}`, { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Falha ao carregar serviços');
     return res.json();
+  },
+
+  async toggleServiceActive(id: string): Promise<{ success: boolean; service: Service; message: string }> {
+    const res = await fetch(`/api/services/${id}/toggle`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao alterar status do serviço');
+    return resData;
   },
 
   async createService(data: Partial<Service>): Promise<{ success: boolean; service: Service; message: string }> {

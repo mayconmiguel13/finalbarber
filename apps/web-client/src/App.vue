@@ -74,28 +74,88 @@ const activeHubTab = ref<'appointments' | 'benefits'>('appointments');
 const bookingStep = ref<1 | 2 | 3 | 4 | 5>(1);
 
 // ================= BUSINESS DATA =================
-const services = [
+function generateDynamicDays() {
+  const result = [];
+  const weekDays = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const now = new Date();
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    const dayWeek = weekDays[d.getDay()];
+    const dayNum = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}-${mm}-${dd}`;
+    let label = `${dayNum}/${mm}`;
+    if (i === 0) label = 'Hoje';
+    else if (i === 1) label = 'Amanhã';
+    else label = dayWeek;
+    result.push({ label, dayNum, dayWeek, date: dateStr });
+  }
+  return result;
+}
+
+const days = ref(generateDynamicDays());
+
+const services = ref<any[]>([
   { id: 'srv-1', name: 'Fade Navalhado / Degradê', duration: 40, price: 50.0, popular: true, desc: 'Acabamento na navalha com toalha refrescante' },
   { id: 'srv-2', name: 'Barboterapia com Toalha Quente', duration: 30, price: 45.0, popular: false, desc: 'Vapor de ozônio, hidratação profunda e alinhamento' },
   { id: 'srv-3', name: 'Combo Completo (Cabelo + Barba)', duration: 60, price: 85.0, popular: true, desc: 'Corte completo, barboterapia e finalização matte' },
-  { id: 'srv-4', name: 'Corte Clássico na Tesoura', duration: 45, price: 55.0, popular: false, desc: 'Corte tradicional executado 100% na tesoura' },
-  { id: 'srv-5', name: 'Alinhamento & Pigmentação', duration: 25, price: 35.0, popular: false, desc: 'Realce de linhas da barba ou cabelo' },
-];
+]);
 
-const barbers = [
-  { id: 'any', name: 'Qualquer Barbeiro', nickname: 'Mais rápido disponível', rating: '4.9', avatar: '' },
-  { id: 'barber-1', name: 'Diego Santos', nickname: 'Fade Master (Cadeira 1)', rating: '5.0', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=96&h=96' },
-  { id: 'barber-2', name: 'Lucas Lima', nickname: 'Navalha de Ouro (Cadeira 2)', rating: '4.9', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=96&h=96' },
-  { id: 'barber-3', name: 'Matheus Rocha', nickname: 'Especialista VIP (Cadeira 3)', rating: '4.8', avatar: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&q=80&w=96&h=96' },
-];
+const barbers = ref<any[]>([
+  { id: 'any', name: 'Qualquer Barbeiro', nickname: 'Mais rápido disponível', rating: '5.0', avatar: '' },
+]);
 
-const days = [
-  { label: 'Hoje', dayNum: '22', dayWeek: 'Qui', date: '2026-10-22' },
-  { label: 'Amanhã', dayNum: '23', dayWeek: 'Sex', date: '2026-10-23' },
-  { label: 'Sábado', dayNum: '24', dayWeek: 'Sáb', date: '2026-10-24' },
-  { label: 'Segunda', dayNum: '26', dayWeek: 'Seg', date: '2026-10-26' },
-  { label: 'Terça', dayNum: '27', dayWeek: 'Ter', date: '2026-10-27' },
-];
+const loadingPublicData = ref(false);
+
+async function loadPublicData() {
+  loadingPublicData.value = true;
+  try {
+    const [srvRes, brbRes] = await Promise.all([
+      fetch('/api/services/public').catch(() => null),
+      fetch('/api/barbers/public').catch(() => null),
+    ]);
+
+    if (srvRes && srvRes.ok) {
+      const srvData = await srvRes.json();
+      if (Array.isArray(srvData) && srvData.length > 0) {
+        services.value = srvData.map((s: any, idx: number) => ({
+          id: s.id,
+          name: s.name,
+          duration: s.durationMinutes || 30,
+          price: Number(s.price),
+          popular: idx === 0 || s.category === 'Combos',
+          desc: s.description || (s.category ? `Especialidade em ${s.category} com acabamento de excelência.` : 'Atendimento profissional de alto padrão.')
+        }));
+        if (!services.value.some(s => s.id === selectedServiceId.value)) {
+          selectedServiceId.value = services.value[0].id;
+        }
+      }
+    }
+
+    if (brbRes && brbRes.ok) {
+      const brbData = await brbRes.json();
+      if (Array.isArray(brbData) && brbData.length > 0) {
+        barbers.value = [
+          { id: 'any', name: 'Qualquer Barbeiro', nickname: 'Mais rápido disponível', rating: '5.0', avatar: '' },
+          ...brbData.map((b: any) => ({
+            id: b.id,
+            name: b.name,
+            nickname: b.chair ? `${b.nickname || b.name} (${b.chair})` : (b.nickname || b.name),
+            rating: '4.9',
+            avatar: b.avatarUrl || ''
+          }))
+        ];
+      }
+    }
+  } catch (err) {
+    console.error('Falha ao carregar dados públicos:', err);
+  } finally {
+    loadingPublicData.value = false;
+  }
+}
 
 const timeSlotsMorning = ['09:00', '09:45', '10:30', '11:15'];
 const timeSlotsAfternoon = ['13:30', '14:15', '15:00', '15:45', '16:30', '17:15'];
@@ -104,7 +164,7 @@ const timeSlotsEvening = ['18:00', '18:45', '19:30', '20:15'];
 // User Booking Form Selections
 const selectedServiceId = ref('srv-1');
 const selectedBarberId = ref('any');
-const selectedDate = ref('2026-10-22');
+const selectedDate = ref(days.value[0]?.date || '2026-10-28');
 const selectedTime = ref('15:00');
 const clientNameInput = ref('');
 const clientPhoneInput = ref('');
@@ -151,11 +211,11 @@ const vouchers = [
 ];
 
 const selectedService = computed(() => {
-  return services.find(s => s.id === selectedServiceId.value) || services[0];
+  return services.value.find(s => s.id === selectedServiceId.value) || services.value[0] || { id: '', name: 'Serviço', price: 50, duration: 30 };
 });
 
 const selectedBarber = computed(() => {
-  return barbers.find(b => b.id === selectedBarberId.value) || barbers[0];
+  return barbers.value.find(b => b.id === selectedBarberId.value) || barbers.value[0] || { id: 'any', name: 'Qualquer Barbeiro', nickname: '', rating: '5.0', avatar: '' };
 });
 
 const discountValue = computed(() => {
@@ -245,7 +305,7 @@ async function submitBooking() {
         clientPhone: phone,
         serviceId: selectedService.value.id,
         servicePrice: selectedService.value.price,
-        barberId: selectedBarber.value.id === 'any' ? 'barber-1' : selectedBarber.value.id,
+        barberId: selectedBarber.value.id === 'any' ? 'any' : selectedBarber.value.id,
         startsAt: `${selectedDate.value}T${selectedTime.value}:00`,
         origin: 'PWA_WEB',
         payOnlineWithDiscount: payOnlineWithDiscount.value,
@@ -296,6 +356,8 @@ onMounted(() => {
   if (localStorage.getItem('barber_user_session') === 'true') {
     isAuthenticated.value = true;
   }
+
+  loadPublicData();
 });
 </script>
 

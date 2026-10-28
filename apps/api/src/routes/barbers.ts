@@ -65,6 +65,56 @@ export async function barbersRoutes(app: FastifyInstance) {
   });
 
   // POST /api/barbers - Add a new barber to the team
+  
+  // GET /api/barbers/public - List active barbers for client booking / public view
+  app.get('/barbers/public', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { orgId: queryOrgId } = (request.query as any) || {};
+      let targetOrgId = queryOrgId;
+
+      if (!targetOrgId) {
+        const firstOrg = await prisma.organization.findFirst({ select: { id: true } });
+        targetOrgId = firstOrg?.id;
+      }
+
+      if (!targetOrgId) {
+        return [];
+      }
+
+      const profiles = await prisma.barberProfile.findMany({
+        where: { orgId: targetOrgId, active: true },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              avatarUrl: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      return profiles.map((p) => {
+        const opStatus = barberOperationalStatusMap.get(p.id);
+        return {
+          id: p.id,
+          name: p.user.name,
+          nickname: p.nickname || p.user.name,
+          chair: p.chair || 'Cadeira 1',
+          avatarUrl: p.user.avatarUrl || '',
+          specialties: p.specialties || 'Corte Degradê, Barba Terapia',
+          bio: p.bio || 'Especialista BarblyClub',
+          operationalStatus: opStatus?.status || 'AVAILABLE',
+          operationalMessage: opStatus?.message || 'Disponível',
+        };
+      });
+    } catch (err: any) {
+      console.error('[Barbers Public GET error]', err);
+      return reply.status(500).send({ error: 'Erro ao carregar barbeiros públicos.' });
+    }
+  });
+
   app.post('/barbers', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -161,6 +211,8 @@ export async function barbersRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Token inválido' });
     }
 
+    const payload = (request as any).user;
+    const orgId = payload?.orgId;
     const { id } = request.params;
     const body: any = request.body || {};
 
@@ -170,8 +222,8 @@ export async function barbersRoutes(app: FastifyInstance) {
         include: { user: true },
       });
 
-      if (!existing) {
-        return reply.status(404).send({ error: 'Barbeiro não encontrado.' });
+      if (!existing || existing.orgId !== orgId) {
+        return reply.status(404).send({ error: 'Barbeiro não encontrado nesta organização.' });
       }
 
       // Update User details if provided
@@ -221,9 +273,19 @@ export async function barbersRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Token inválido' });
     }
 
+    const payload = (request as any).user;
+    const orgId = payload?.orgId;
     const { id } = request.params;
 
     try {
+      const existing = await prisma.barberProfile.findUnique({
+        where: { id },
+      });
+
+      if (!existing || existing.orgId !== orgId) {
+        return reply.status(404).send({ error: 'Barbeiro não encontrado nesta organização.' });
+      }
+
       await prisma.barberProfile.update({
         where: { id },
         data: { active: false },

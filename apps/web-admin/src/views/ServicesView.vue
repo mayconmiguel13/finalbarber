@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive } from 'vue';
-import { 
+import {
+  Power,
+  Play,
   Scissors, 
   Plus, 
   Search, 
@@ -104,6 +106,7 @@ const form = reactive({
   durationMinutes: 30,
   photoUrl: '',
   description: '',
+  active: true,
 });
 
 // Modais da Galeria de Trabalhos
@@ -131,6 +134,7 @@ const categories = [
   'Combos',
   'Químicas & Tratamentos',
   'Sobrancelha',
+  'Pausados',
 ];
 
 const categoryOptions = [
@@ -309,6 +313,7 @@ const whatsappAiPhotosCount = computed(() => {
 // Contagem de serviços por categoria para os chips
 function countByCategory(cat: string): number {
   if (cat === 'Todos') return services.value.length;
+  if (cat === 'Pausados') return services.value.filter((s) => s.active === false).length;
   return services.value.filter((s) => {
     if (cat === 'Químicas & Tratamentos') {
       return s.category === 'Químicas & Tratamentos' || s.category === 'Químicas' || s.category?.toLowerCase().includes('químic');
@@ -322,6 +327,7 @@ const filteredServices = computed(() => {
   return services.value.filter((service) => {
     const matchesCat = (() => {
       if (selectedCategory.value === 'Todos') return true;
+      if (selectedCategory.value === 'Pausados') return service.active === false;
       if (selectedCategory.value === 'Químicas & Tratamentos') {
         return service.category === 'Químicas & Tratamentos' || service.category === 'Químicas' || service.category?.toLowerCase().includes('químic');
       }
@@ -371,6 +377,22 @@ const filteredGalleryItems = computed(() => {
 });
 
 // ================= CRUD SERVIÇOS =================
+
+async function toggleServiceStatus(service: Service) {
+  playPopSound();
+  try {
+    const res = await api.toggleServiceActive(service.id);
+    service.active = res.service.active;
+    if (res.service.active) {
+      toast.success(`Serviço "${service.name}" ativado com sucesso!`, 'Serviço Ativo');
+    } else {
+      toast.info(`Serviço "${service.name}" pausado do cardápio online e IA.`, 'Serviço Pausado');
+    }
+  } catch (err: any) {
+    toast.error(err.message || 'Erro ao alterar status do serviço', 'Erro');
+  }
+}
+
 function openCreateModal() {
   playPopSound();
   isEditing.value = false;
@@ -381,6 +403,7 @@ function openCreateModal() {
   form.durationMinutes = 35;
   form.photoUrl = '';
   form.description = '';
+  form.active = true;
   isEditModalOpen.value = true;
 }
 
@@ -394,6 +417,7 @@ function openEditModal(service: Service) {
   form.durationMinutes = Number(service.durationMinutes) || 30;
   form.photoUrl = service.photoUrl || '';
   form.description = service.description || '';
+  form.active = service.active !== false;
   isEditModalOpen.value = true;
 }
 
@@ -875,6 +899,15 @@ onUnmounted(() => {
               <Clock class="w-3.5 h-3.5 text-amber-400" />
               <span>{{ service.durationMinutes }} min</span>
             </span>
+
+            <!-- Status Badge (Ativo / Pausado) -->
+            <span 
+              class="absolute bottom-3 left-3 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider backdrop-blur-md border flex items-center gap-1 shadow-sm"
+              :class="service.active !== false ? 'bg-emerald-500/85 text-white border-emerald-400/40' : 'bg-amber-500/85 text-black border-amber-400/40'"
+            >
+              <span class="w-1.5 h-1.5 rounded-full" :class="service.active !== false ? 'bg-white animate-pulse' : 'bg-black'"></span>
+              {{ service.active !== false ? 'Ativo' : 'Pausado' }}
+            </span>
           </div>
 
           <!-- Dados do Serviço -->
@@ -900,6 +933,14 @@ onUnmounted(() => {
               </div>
 
               <div class="flex items-center gap-1.5">
+                <button 
+                  @click="toggleServiceStatus(service)"
+                  class="p-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-xs font-bold transition cursor-pointer"
+                  :class="service.active !== false ? 'text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/20' : 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/20'"
+                  :title="service.active !== false ? 'Pausar serviço (ocultar do cardápio online e IA)' : 'Ativar serviço'"
+                >
+                  <Power class="w-4 h-4" />
+                </button>
                 <button 
                   @click="openEditModal(service)"
                   class="p-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 text-xs font-bold transition cursor-pointer"
@@ -931,6 +972,7 @@ onUnmounted(() => {
                 <th class="py-4 px-4">Duração</th>
                 <th class="py-4 px-4">Preço</th>
                 <th class="py-4 px-4">Foto no Cardápio</th>
+                <th class="py-4 px-4">Status</th>
                 <th class="py-4 px-6 text-right">Ações</th>
               </tr>
             </thead>
@@ -966,6 +1008,17 @@ onUnmounted(() => {
                     <CheckCircle2 class="w-3.5 h-3.5" /> Com Foto
                   </span>
                   <span v-else class="text-slate-400 text-[11px] italic">Sem foto</span>
+                </td>
+                <td class="py-4 px-4">
+                  <button 
+                    @click="toggleServiceStatus(service)"
+                    class="px-2.5 py-1 rounded-lg text-[11px] font-bold border transition flex items-center gap-1.5 cursor-pointer"
+                    :class="service.active !== false ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20' : 'bg-slate-200/60 dark:bg-slate-800 text-slate-500 border-slate-300 dark:border-slate-700 hover:bg-slate-300/60'"
+                    :title="service.active !== false ? 'Clique para pausar este serviço' : 'Clique para ativar este serviço'"
+                  >
+                    <span class="w-1.5 h-1.5 rounded-full" :class="service.active !== false ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                    {{ service.active !== false ? 'Ativo' : 'Pausado' }}
+                  </button>
                 </td>
                 <td class="py-4 px-6 text-right">
                   <div class="flex items-center justify-end gap-1.5">
@@ -1440,6 +1493,18 @@ onUnmounted(() => {
               placeholder="Ex: Finalização com toalha quente, navalha descartável e loção pós-barba importada."
               class="w-full px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs sm:text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-amber-500 resize-none"
             ></textarea>
+          </div>
+
+          <!-- Status Ativo / Pausado -->
+          <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 flex items-center justify-between">
+            <div>
+              <span class="text-xs font-bold text-slate-800 dark:text-slate-200 block">Status do Serviço</span>
+              <span class="text-[11px] text-slate-400">Serviços pausados não aparecem no cardápio online nem na IA do WhatsApp</span>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" v-model="form.active" class="sr-only peer" />
+              <div class="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
           </div>
 
           <!-- Ações -->

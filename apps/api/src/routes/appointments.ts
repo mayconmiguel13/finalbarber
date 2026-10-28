@@ -253,14 +253,46 @@ export async function appointmentsRoutes(app: FastifyInstance) {
 
   // POST /api/appointments - Criar agendamento (Encaixe rápido no balcão ou via app)
   app.post('/appointments', async (request: FastifyRequest, reply: FastifyReply) => {
+    let orgId: string | undefined;
     try {
       await request.jwtVerify();
+      const payload = (request as any).user;
+      orgId = payload?.orgId;
     } catch {
-      return reply.status(401).send({ error: 'Token inválido' });
-    }
+      // Se não autenticado via JWT de admin, permite agendamento público online (PWA_WEB ou WHATSAPP_AI)
+      const rawBody = (request.body as any) || {};
+      if (rawBody.origin === 'PWA_WEB' || rawBody.origin === 'WHATSAPP_AI') {
+        if (rawBody.orgId) {
+          orgId = rawBody.orgId;
+        } else if (rawBody.barberId && rawBody.barberId !== 'any' && rawBody.barberId !== 'barber-1') {
+          const barber = await prisma.barberProfile.findUnique({
+            where: { id: rawBody.barberId },
+            select: { orgId: true }
+          });
+          orgId = barber?.orgId;
+        }
+        // Se ainda não encontrou orgId, tentar pelo serviço selecionado
+        if (!orgId) {
+          const targetSrvId = rawBody.serviceId || (rawBody.serviceIds && rawBody.serviceIds[0]);
+          if (targetSrvId && targetSrvId !== 'srv-1') {
+            const service = await prisma.service.findUnique({
+              where: { id: targetSrvId },
+              select: { orgId: true }
+            });
+            orgId = service?.orgId;
+          }
+        }
+        // Fallback para primeira organização ativa
+        if (!orgId) {
+          const firstOrg = await prisma.organization.findFirst({ select: { id: true } });
+          orgId = firstOrg?.id;
+        }
+      }
 
-    const payload = (request as any).user;
-    const orgId = payload.orgId;
+      if (!orgId) {
+        return reply.status(401).send({ error: 'Token inválido ou não autenticado.' });
+      }
+    }
 
     const schema = z.object({
       clientName: z.string().min(2, 'Nome do cliente é obrigatório'),
@@ -294,18 +326,41 @@ export async function appointmentsRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'Selecione ao menos um serviço.' });
       }
 
-      const services = await prisma.service.findMany({
+      let services = await prisma.service.findMany({
         where: { id: { in: targetServiceIds }, orgId },
       });
-      if (services.length === 0) return reply.status(404).send({ error: 'Nenhum serviço válido encontrado.' });
+      if (services.length === 0) {
+        // Fallback: se enviou id mock antigo como 'srv-1', associar ao primeiro serviço ativo
+        const fallbackService = await prisma.service.findFirst({
+          where: { orgId, active: true },
+          orderBy: { createdAt: 'asc' }
+        });
+        if (fallbackService) {
+          services = [fallbackService];
+        } else {
+          return reply.status(404).send({ error: 'Nenhum serviço válido encontrado.' });
+        }
+      }
 
       const primaryService = services[0];
       const totalDuration = services.reduce((sum, s) => sum + (s.durationMinutes || 30), 0);
       const totalPrice = services.reduce((sum, s) => sum + Number(s.price), 0);
       const serviceNames = services.map(s => s.name).join(' + ');
 
+      // Se barbeiro for 'any' ou mock 'barber-1', associar ao primeiro barbeiro ativo da organização
+      let targetBarberId = body.barberId;
+      if (targetBarberId === 'any' || targetBarberId === 'barber-1') {
+        const firstBarber = await prisma.barberProfile.findFirst({
+          where: { orgId, active: true },
+          orderBy: { createdAt: 'asc' }
+        });
+        if (firstBarber) {
+          targetBarberId = firstBarber.id;
+        }
+      }
+
       const barber = await prisma.barberProfile.findFirst({
-        where: { id: body.barberId, orgId },
+        where: { id: targetBarberId, orgId },
         include: { user: true },
       });
       if (!barber) return reply.status(404).send({ error: 'Profissional não encontrado.' });

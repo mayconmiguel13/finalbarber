@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 
 export async function galleryRoutes(app: FastifyInstance) {
-  // GET /api/gallery - List all gallery portfolio items
+  // GET /api/gallery - List all gallery portfolio items for admin
   app.get('/gallery', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -12,7 +12,10 @@ export async function galleryRoutes(app: FastifyInstance) {
     }
 
     const payload = (request as any).user;
-    const orgId = payload.orgId;
+    const orgId = payload?.orgId;
+    if (!orgId) {
+      return reply.status(400).send({ error: 'Organização não identificada.' });
+    }
 
     try {
       const items = await prisma.$queryRawUnsafe(`
@@ -47,6 +50,46 @@ export async function galleryRoutes(app: FastifyInstance) {
     }
   });
 
+  // GET /api/gallery/public - Public endpoint for Client PWA and WhatsApp AI
+  app.get('/gallery/public', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { orgId: queryOrgId, category, tag } = request.query as any || {};
+      let targetOrgId = queryOrgId;
+
+      if (!targetOrgId) {
+        const firstOrg = await prisma.organization.findFirst({ select: { id: true } });
+        targetOrgId = firstOrg?.id;
+      }
+
+      if (!targetOrgId) {
+        return [];
+      }
+
+      const items = await prisma.$queryRawUnsafe(`
+        SELECT 
+          g.id,
+          g.title,
+          g.description,
+          g.photoUrl,
+          g.category,
+          g.tags,
+          g.likesCount,
+          u.name AS barberName,
+          bp.nickname AS barberNickname
+        FROM gallery_items g
+        LEFT JOIN barber_profiles bp ON g.barberId = bp.id
+        LEFT JOIN users u ON bp.userId = u.id
+        WHERE g.orgId = ? AND g.whatsappAiEnabled = 1
+        ORDER BY g.likesCount DESC, g.createdAt DESC
+      `, targetOrgId);
+
+      return items;
+    } catch (err: any) {
+      console.error('[Gallery Public GET error]', err);
+      return reply.status(500).send({ error: 'Erro ao carregar portfólio público.' });
+    }
+  });
+
   // POST /api/gallery - Create new portfolio item
   app.post('/gallery', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -56,7 +99,10 @@ export async function galleryRoutes(app: FastifyInstance) {
     }
 
     const payload = (request as any).user;
-    const orgId = payload.orgId;
+    const orgId = payload?.orgId;
+    if (!orgId) {
+      return reply.status(400).send({ error: 'Organização não identificada.' });
+    }
 
     const schema = z.object({
       title: z.string().min(2, 'Título é obrigatório'),
@@ -81,7 +127,7 @@ export async function galleryRoutes(app: FastifyInstance) {
       await prisma.$queryRawUnsafe(`
         INSERT INTO gallery_items (id, orgId, barberId, serviceId, title, description, photoUrl, category, tags, whatsappAiEnabled, likesCount)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-      `, id, orgId, data.barberId || null, data.serviceId || null, data.title, data.description || null, data.photoUrl, data.category, data.tags || null, data.whatsappAiEnabled);
+      `, id, orgId, data.barberId || null, data.serviceId || null, data.title.trim(), data.description?.trim() || null, data.photoUrl.trim(), data.category.trim(), data.tags?.trim() || null, data.whatsappAiEnabled ? 1 : 0);
 
       return {
         success: true,
@@ -99,7 +145,7 @@ export async function galleryRoutes(app: FastifyInstance) {
     }
   });
 
-  // PUT /api/gallery/:id - Update portfolio item
+  // PUT /api/gallery/:id - Update portfolio item with multi-tenant check
   app.put('/gallery/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -107,10 +153,17 @@ export async function galleryRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Token inválido' });
     }
 
+    const payload = (request as any).user;
+    const orgId = payload?.orgId;
     const { id } = request.params;
     const body: any = request.body || {};
 
     try {
+      const existing: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM gallery_items WHERE id = ? AND orgId = ?`, id, orgId);
+      if (!existing || existing.length === 0) {
+        return reply.status(404).send({ error: 'Item da galeria não encontrado nesta organização.' });
+      }
+
       await prisma.$queryRawUnsafe(`
         UPDATE gallery_items 
         SET 
@@ -121,16 +174,17 @@ export async function galleryRoutes(app: FastifyInstance) {
           description = COALESCE(?, description),
           tags = COALESCE(?, tags),
           whatsappAiEnabled = COALESCE(?, whatsappAiEnabled)
-        WHERE id = ?
+        WHERE id = ? AND orgId = ?
       `, 
-        body.title || null,
-        body.photoUrl || null,
+        body.title?.trim() || null,
+        body.photoUrl?.trim() || null,
         body.barberId || null,
-        body.category || null,
-        body.description || null,
-        body.tags || null,
-        body.whatsappAiEnabled !== undefined ? body.whatsappAiEnabled : null,
-        id
+        body.category?.trim() || null,
+        body.description !== undefined ? (body.description ? String(body.description).trim() : null) : null,
+        body.tags !== undefined ? (body.tags ? String(body.tags).trim() : null) : null,
+        body.whatsappAiEnabled !== undefined ? (body.whatsappAiEnabled ? 1 : 0) : null,
+        id,
+        orgId
       );
 
       return {
@@ -138,11 +192,12 @@ export async function galleryRoutes(app: FastifyInstance) {
         message: 'Trabalho da galeria atualizado com sucesso!',
       };
     } catch (err: any) {
+      console.error('[Gallery PUT error]', err);
       return reply.status(500).send({ error: 'Erro ao atualizar item da galeria.' });
     }
   });
 
-  // DELETE /api/gallery/:id - Delete item
+  // DELETE /api/gallery/:id - Delete item with multi-tenant check
   app.delete('/gallery/:id', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
@@ -150,16 +205,24 @@ export async function galleryRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: 'Token inválido' });
     }
 
+    const payload = (request as any).user;
+    const orgId = payload?.orgId;
     const { id } = request.params;
 
     try {
-      await prisma.$queryRawUnsafe(`DELETE FROM gallery_items WHERE id = ?`, id);
+      const existing: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM gallery_items WHERE id = ? AND orgId = ?`, id, orgId);
+      if (!existing || existing.length === 0) {
+        return reply.status(404).send({ error: 'Item da galeria não encontrado nesta organização.' });
+      }
+
+      await prisma.$queryRawUnsafe(`DELETE FROM gallery_items WHERE id = ? AND orgId = ?`, id, orgId);
 
       return {
         success: true,
         message: 'Foto removida da galeria com sucesso.',
       };
     } catch (err: any) {
+      console.error('[Gallery DELETE error]', err);
       return reply.status(500).send({ error: 'Erro ao remover foto da galeria.' });
     }
   });
