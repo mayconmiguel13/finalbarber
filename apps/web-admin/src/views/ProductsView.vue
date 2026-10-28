@@ -494,18 +494,19 @@ async function handleConfirmBatchEntry() {
   }
 }
 
-// ================= MODAL: VER HISTÓRICO DE LOTES DO PRODUTO =================
-const isBatchListModalOpen = ref(false);
+// ================= MODAL: VISUALIZAÇÃO COMPLETA DO PRODUTO & LOTES =================
+const isProductDetailsModalOpen = ref(false);
+const isBatchListModalOpen = isProductDetailsModalOpen; // alias para compatibilidade
 const inspectedProduct = ref<Product | null>(null);
 const inspectedBatches = ref<ProductBatch[]>([]);
 const isLoadingBatches = ref(false);
 
-async function openBatchListModal(prod: Product) {
+async function openProductDetailsModal(prod: Product) {
   playPopSound();
   inspectedProduct.value = prod;
   inspectedBatches.value = [];
   isLoadingBatches.value = true;
-  isBatchListModalOpen.value = true;
+  isProductDetailsModalOpen.value = true;
   try {
     inspectedBatches.value = await api.getProductBatches(prod.id);
   } catch (err: any) {
@@ -514,6 +515,23 @@ async function openBatchListModal(prod: Product) {
     isLoadingBatches.value = false;
   }
 }
+const openBatchListModal = openProductDetailsModal;
+
+const inspectedMargin = computed(() => {
+  if (!inspectedProduct.value) return { unitProfit: 0, percent: 0 };
+  const sale = Number(inspectedProduct.value.salePrice) || 0;
+  const cost = Number(inspectedProduct.value.costPrice) || 0;
+  const unitProfit = sale - cost;
+  const percent = cost > 0 ? (unitProfit / cost) * 100 : 100;
+  return { unitProfit, percent };
+});
+
+const inspectedCommission = computed(() => {
+  if (!inspectedProduct.value) return 0;
+  const sale = Number(inspectedProduct.value.salePrice) || 0;
+  const comm = Number(inspectedProduct.value.commissionPercentage) || 0;
+  return (sale * comm) / 100;
+});
 
 // ================= MODAL: CONFIRMAÇÃO DE EXCLUSÃO ESTILIZADA =================
 const isDeleteModalOpen = ref(false);
@@ -928,10 +946,11 @@ onMounted(async () => {
         <div 
           v-for="prod in filteredProducts" 
           :key="prod.id"
-          class="bg-white dark:bg-[#121824] rounded-3xl border border-slate-200/80 dark:border-white/10 p-4 sm:p-5 shadow-sm flex flex-col justify-between transition hover:border-amber-500/30 group"
+          class="bg-white dark:bg-[#121824] rounded-3xl border border-slate-200/80 dark:border-white/10 p-4 sm:p-5 shadow-sm flex flex-col justify-between transition hover:border-amber-500/40 hover:shadow-md group relative"
           :class="{ 'opacity-65': !prod.active }"
         >
-          <div>
+          <!-- Área superior clicável: abre visualização completa do produto e lotes -->
+          <div @click="openProductDetailsModal(prod)" class="cursor-pointer" title="Clique para visualizar detalhes e lotes">
             <!-- Top Product Image & Category Badge -->
             <div class="relative h-44 rounded-2xl overflow-hidden bg-slate-100 dark:bg-[#07090e] mb-3 border border-slate-100 dark:border-white/5">
               <img 
@@ -939,6 +958,14 @@ onMounted(async () => {
                 :alt="prod.name"
                 class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
               />
+
+              <!-- Hover cue para abrir detalhes -->
+              <div class="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                <span class="px-3 py-1.5 rounded-xl bg-black/80 backdrop-blur-md text-amber-400 font-bold text-xs flex items-center gap-1.5 shadow-lg border border-white/10">
+                  <Boxes class="w-3.5 h-3.5" />
+                  Ver Detalhes &amp; Lotes
+                </span>
+              </div>
               
               <!-- Category Pill Top-Left -->
               <div class="absolute top-2.5 left-2.5">
@@ -980,7 +1007,7 @@ onMounted(async () => {
                 
                 <!-- Quick Active Toggle Pill -->
                 <button 
-                  @click="handleToggleProductActive(prod)"
+                  @click.stop="handleToggleProductActive(prod)"
                   class="shrink-0 p-1 rounded-lg transition cursor-pointer"
                   :class="prod.active ? 'text-emerald-500 hover:bg-emerald-500/10' : 'text-slate-400 hover:bg-white/10'"
                   :title="prod.active ? 'Clique para pausar produto' : 'Clique para ativar produto'"
@@ -1037,8 +1064,7 @@ onMounted(async () => {
               <div class="flex items-center justify-between text-[10px] text-slate-400 mt-1.5">
                 <span>Alerta mín: {{ prod.minStockAlert }} un.</span>
                 <button 
-                  @click="openBatchModal(prod)"
-                  class="text-emerald-500 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
+                  @click.stop="openBatchModal(prod)" class="text-emerald-500 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
                 >
                   <Plus class="w-3 h-3" /> Entrada Lote
                 </button>
@@ -1242,18 +1268,18 @@ onMounted(async () => {
             <tr 
               v-for="prod in paginatedProducts" 
               :key="prod.id"
-              class="hover:bg-amber-500/[0.02] transition"
+              class="hover:bg-amber-500/[0.02] transition group/row"
               :class="{ 'opacity-60': !prod.active }"
             >
-              <!-- Name & Photo -->
-              <td class="p-4">
+              <!-- Name & Photo (Clicável para abrir dossiê e lotes) -->
+              <td class="p-4 cursor-pointer" @click="openProductDetailsModal(prod)" title="Clique para ver detalhes e lotes">
                 <div class="flex items-center gap-3">
                   <img 
                     :src="prod.photoUrl || 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=100'" 
-                    class="w-10 h-10 rounded-xl object-cover shrink-0" 
+                    class="w-10 h-10 rounded-xl object-cover shrink-0 group-hover/row:scale-105 transition" 
                   />
                   <div>
-                    <div class="font-extrabold text-slate-900 dark:text-white leading-tight">
+                    <div class="font-extrabold text-slate-900 dark:text-white leading-tight group-hover/row:text-amber-500 transition">
                       {{ prod.name }}
                     </div>
                     <div v-if="prod.barcode" class="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
@@ -1263,15 +1289,15 @@ onMounted(async () => {
                 </div>
               </td>
 
-              <!-- Category -->
-              <td class="p-4">
-                <span class="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 whitespace-nowrap">
+              <!-- Category (Clicável) -->
+              <td class="p-4 cursor-pointer" @click="openProductDetailsModal(prod)">
+                <span class="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 whitespace-nowrap group-hover/row:border-amber-500/30">
                   {{ prod.category }}
                 </span>
               </td>
 
-              <!-- Stock Quantity & Status -->
-              <td class="p-4 text-center">
+              <!-- Stock Quantity & Status (Clicável) -->
+              <td class="p-4 text-center cursor-pointer" @click="openProductDetailsModal(prod)">
                 <div class="font-mono font-black" :class="Number(prod.stockQuantity) <= 0 ? 'text-rose-500' : Number(prod.stockQuantity) <= Number(prod.minStockAlert) ? 'text-amber-500' : 'text-emerald-500'">
                   {{ prod.stockQuantity }} un.
                 </div>
