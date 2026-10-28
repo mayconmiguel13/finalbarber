@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive, watch } from 'vue';
+import { ref, computed, onMounted, reactive, watch, nextTick } from 'vue';
 import { useRoute } from 'vue-router';
 import { 
   Calendar, 
@@ -23,6 +23,7 @@ import {
   Columns3,
   List, 
   CalendarDays,
+  CalendarX2,
   Beer,
   AlertTriangle,
   Move,
@@ -93,6 +94,17 @@ const selectedDate = ref<string>(getTodayString());
 const selectedBarberId = ref<string>('ALL');
 const viewMode = ref<'FULLCALENDAR' | 'LIST'>('FULLCALENDAR');
 const fullCalendarRef = ref<any>(null);
+const datePickerInputRef = ref<HTMLInputElement | null>(null);
+
+function formatHeaderBadgeDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const d = new Date(year, month - 1, day);
+  const weekday = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+  const dayNum = String(d.getDate()).padStart(2, '0');
+  const monthName = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+  return `${weekday.charAt(0).toUpperCase() + weekday.slice(1)}, ${dayNum} ${monthName}`;
+}
 
 function formatDisplayDate(dateStr: string): string {
   if (!dateStr) return '';
@@ -708,43 +720,69 @@ function handleEventClick(info: any) {
   }
 }
 
-// Calendar Date Navigation
+function addDaysToDateString(dateStr: string, days: number): string {
+  if (!dateStr) return getTodayString();
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + days);
+  const resYear = date.getFullYear();
+  const resMonth = String(date.getMonth() + 1).padStart(2, '0');
+  const resDay = String(date.getDate()).padStart(2, '0');
+  return `${resYear}-${resMonth}-${resDay}`;
+}
+
+function syncCalendarDate() {
+  const cal = fullCalendarRef.value?.getApi();
+  if (cal && selectedDate.value) {
+    try {
+      cal.gotoDate(selectedDate.value);
+    } catch (e) {
+      console.warn('Could not sync FullCalendar date:', e);
+    }
+  }
+}
+
+function triggerNativeDatePicker() {
+  if (datePickerInputRef.value) {
+    if (typeof (datePickerInputRef.value as any).showPicker === 'function') {
+      try {
+        (datePickerInputRef.value as any).showPicker();
+        return;
+      } catch (e) {}
+    }
+    datePickerInputRef.value.focus();
+    datePickerInputRef.value.click();
+  }
+}
+
+// Calendar & List Date Navigation (works universally in FullCalendar & List Mode)
 function goToPrevDay() {
   playPopSound();
-  const cal = fullCalendarRef.value?.getApi();
-  if (cal) {
-    cal.prev();
-    const d = cal.getDate();
-    selectedDate.value = d.toISOString().split('T')[0];
-    loadAppointments();
-  }
+  const step = (viewMode.value === 'FULLCALENDAR' && barberScheduleView.value === 'WEEK' && selectedBarberId.value !== 'ALL') ? 7 : 1;
+  selectedDate.value = addDaysToDateString(selectedDate.value, -step);
+  syncCalendarDate();
+  loadAppointments();
 }
 
 function goToNextDay() {
   playPopSound();
-  const cal = fullCalendarRef.value?.getApi();
-  if (cal) {
-    cal.next();
-    const d = cal.getDate();
-    selectedDate.value = d.toISOString().split('T')[0];
-    loadAppointments();
-  }
+  const step = (viewMode.value === 'FULLCALENDAR' && barberScheduleView.value === 'WEEK' && selectedBarberId.value !== 'ALL') ? 7 : 1;
+  selectedDate.value = addDaysToDateString(selectedDate.value, step);
+  syncCalendarDate();
+  loadAppointments();
 }
 
 function goToToday() {
   playPopSound();
-  const cal = fullCalendarRef.value?.getApi();
   selectedDate.value = getTodayString();
-  if (cal) {
-    cal.today();
-  }
+  syncCalendarDate();
   loadAppointments();
 }
 
 function onDatePickerChange() {
-  const cal = fullCalendarRef.value?.getApi();
-  if (cal && selectedDate.value) {
-    cal.gotoDate(selectedDate.value);
+  playPopSound();
+  if (selectedDate.value) {
+    syncCalendarDate();
     loadAppointments();
   }
 }
@@ -1373,6 +1411,13 @@ watch(() => route.query.new, (newVal) => {
   }
 });
 
+watch(viewMode, async (newVal) => {
+  if (newVal === 'FULLCALENDAR') {
+    await nextTick();
+    syncCalendarDate();
+  }
+});
+
 onMounted(async () => {
   await Promise.all([
     loadBarbers(), 
@@ -1433,16 +1478,21 @@ onMounted(async () => {
           </button>
 
           <!-- Native date picker trigger -->
-          <div class="relative flex items-center px-2 py-1">
+          <div 
+            @click="triggerNativeDatePicker"
+            class="relative flex items-center px-2 py-1 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/5 rounded-xl transition"
+            title="Clique para selecionar uma data"
+          >
             <input 
+              ref="datePickerInputRef"
               type="date" 
               v-model="selectedDate" 
               @change="onDatePickerChange" 
-              class="absolute inset-0 opacity-0 cursor-pointer w-full"
+              class="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
             />
-            <span class="text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer flex items-center gap-1.5 px-1">
-              <CalendarDays class="w-3.5 h-3.5 text-amber-500" />
-              <span>{{ formatDisplayDate(selectedDate).split(',')[0] }}</span>
+            <span class="text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer flex items-center gap-1.5 px-1 select-none">
+              <CalendarDays class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>{{ formatHeaderBadgeDate(selectedDate) }}</span>
             </span>
           </div>
 
@@ -1827,12 +1877,102 @@ onMounted(async () => {
     </div>
 
     <!-- ================= VIEW MODE 2: LISTA LINEAR ================= -->
-    <div v-else class="space-y-3">
+    <div v-else class="space-y-4">
+      <!-- Sub-header for List Mode with Date Context & Quick Jump -->
+      <div class="bg-white dark:bg-[#121824] p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
+            <Calendar class="w-5 h-5" />
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <h3 class="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
+                {{ formatDisplayDate(selectedDate) }}
+              </h3>
+              <span v-if="isToday" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                Hoje
+              </span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400">
+              <span class="font-bold text-amber-600 dark:text-amber-400">{{ filteredAppointments.length }}</span> agendamento(s) para este dia
+              <span v-if="selectedBarberId !== 'ALL'"> • Filtrado por cadeira</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Quick Day Nav Buttons inside List Mode -->
+        <div class="flex items-center gap-1.5 self-end sm:self-center">
+          <button 
+            @click="goToPrevDay" 
+            class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            title="Dia Anterior"
+          >
+            <ChevronLeft class="w-3.5 h-3.5" />
+            <span>Dia anterior</span>
+          </button>
+          
+          <button 
+            v-if="!isToday"
+            @click="goToToday"
+            class="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 text-xs font-bold hover:bg-amber-400 transition cursor-pointer shadow-sm"
+          >
+            Ir para Hoje
+          </button>
+
+          <button 
+            @click="goToNextDay" 
+            class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-700 dark:text-slate-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            title="Próximo Dia"
+          >
+            <span>Próximo dia</span>
+            <ChevronRight class="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <!-- Empty State when 0 appointments in this date -->
       <div 
+        v-if="filteredAppointments.length === 0" 
+        class="py-16 text-center bg-white dark:bg-[#121824] rounded-3xl border border-slate-200/80 dark:border-white/10 shadow-sm p-8"
+      >
+        <div class="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto mb-3">
+          <CalendarX2 class="w-7 h-7" />
+        </div>
+        <h3 class="text-base font-extrabold text-slate-900 dark:text-white">
+          Nenhum agendamento para esta data
+        </h3>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
+          Não há agendamentos registrados em {{ formatDisplayDate(selectedDate) }}. Use os botões acima para navegar entre os dias ou crie um novo agendamento.
+        </p>
+        <div class="flex items-center justify-center gap-2 mt-4">
+          <button 
+            @click="goToToday" 
+            v-if="!isToday"
+            class="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer"
+          >
+            Voltar para Hoje
+          </button>
+          <button 
+            @click="openCreateModal()" 
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 active:scale-95 transition cursor-pointer"
+          >
+            <Plus class="w-4 h-4 stroke-[3]" />
+            <span>+ Agendar para este dia</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Appointments List Cards -->
+      <div 
+        v-else 
         v-for="apt in filteredAppointments" 
         :key="apt.id"
         @click="openDetailsModal(apt)"
         class="bg-white dark:bg-[#121824] p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 transition hover:border-amber-500/30 cursor-pointer"
+        :style="{
+          borderLeftWidth: '5px',
+          borderLeftColor: getBarberPalette(apt.barber?.id).border
+        }"
       >
         <div class="flex items-start sm:items-center gap-3.5 flex-1 min-w-0">
           <div class="w-16 sm:w-20 py-2 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-center shrink-0">
@@ -1869,7 +2009,13 @@ onMounted(async () => {
                 {{ apt.service?.name }}
               </span>
               <span>•</span>
-              <span>{{ apt.barber?.name }}</span>
+              <span class="flex items-center gap-1.5 font-medium">
+                <span 
+                  class="w-2 h-2 rounded-full shrink-0" 
+                  :style="{ backgroundColor: getBarberPalette(apt.barber?.id).border }"
+                ></span>
+                {{ apt.barber?.name }}
+              </span>
               <span>•</span>
               <span class="font-mono font-bold text-slate-900 dark:text-white">
                 R$ {{ Number(apt.finalPrice).toFixed(2).replace('.', ',') }}
