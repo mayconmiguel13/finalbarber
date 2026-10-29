@@ -8,6 +8,7 @@ import {
   UserCheck, 
   Package,
   Wallet,
+  Split,
   MessageSquareCode, 
   Settings,
   LogOut,
@@ -202,9 +203,9 @@ function handleLinkClick() {
         </nav>
       </div>
 
-      <!-- Section: FINANCE -->
+      <!-- Section: FINANCE & COMMISSIONS -->
       <div class="mb-6">
-        <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2">Financeiro &amp; Split</div>
+        <div class="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2">Financeiro &amp; Comissões</div>
         <nav class="space-y-1">
           <router-link 
             to="/financial" 
@@ -213,10 +214,22 @@ function handleLinkClick() {
             :class="route.path === '/financial' ? 'bg-brand-light text-brand' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium'"
           >
             <div class="flex items-center gap-3">
-              <Wallet class="w-4 h-4" />
-              <span>Financeiro &amp; Salão-Parceiro</span>
+              <Wallet class="w-4 h-4 text-emerald-500" />
+              <span>Financeiro (Livro Caixa)</span>
             </div>
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-brand text-white uppercase">Lei 13.352</span>
+          </router-link>
+
+          <router-link 
+            to="/commissions" 
+            @click="handleLinkClick"
+            class="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition"
+            :class="route.path === '/commissions' ? 'bg-brand-light text-brand' : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/50 font-medium'"
+          >
+            <div class="flex items-center gap-3">
+              <Split class="w-4 h-4 text-amber-500" />
+              <span>Comissões &amp; Repasses</span>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 uppercase">Lei 13.352</span>
           </router-link>
         </nav>
       </div>

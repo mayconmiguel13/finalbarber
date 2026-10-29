@@ -25,6 +25,7 @@ import {
   LayoutGrid,
   List,
   ArrowUpRight,
+  ArrowRight,
   ArrowDownRight,
   Sparkles,
   UploadCloud,
@@ -48,16 +49,6 @@ import { useToastStore } from '../stores/toast';
 const toast = useToastStore();
 
 // ================= NAVEGAÇÃO DE ABAS =================
-const activeTab = ref<'SUMMARY' | 'SPLITS'>(
-  (localStorage.getItem('barbly_financial_tab') === 'SPLITS' ? 'SPLITS' : 'SUMMARY')
-);
-
-function setActiveTab(tab: 'SUMMARY' | 'SPLITS') {
-  playPopSound();
-  activeTab.value = tab;
-  localStorage.setItem('barbly_financial_tab', tab);
-}
-
 // ================= MODOS DE VISUALIZAÇÃO (CARDS vs LISTA) =================
 const entryViewMode = ref<'CARDS' | 'LIST'>(
   (localStorage.getItem('barbly_entry_view') as 'CARDS' | 'LIST') || 'LIST'
@@ -67,17 +58,6 @@ function setEntryViewMode(mode: 'CARDS' | 'LIST') {
   entryViewMode.value = mode;
   localStorage.setItem('barbly_entry_view', mode);
 }
-
-const splitViewMode = ref<'CARDS' | 'LIST'>(
-  (localStorage.getItem('barbly_split_view') as 'CARDS' | 'LIST') || 'CARDS'
-);
-function setSplitViewMode(mode: 'CARDS' | 'LIST') {
-  playPopSound();
-  splitViewMode.value = mode;
-  localStorage.setItem('barbly_split_view', mode);
-}
-
-
 
 // ================= ESTADO GERAL =================
 const loading = ref(true);
@@ -189,31 +169,6 @@ function toggleSort(key: typeof sortKey.value) {
     sortOrder.value = 'desc';
   }
   currentPage.value = 1;
-}
-
-// Modal de Recibo da Lei Salão-Parceiro
-const isReceiptModalOpen = ref(false);
-const receiptData = ref<{
-  barberName: string;
-  pixKey: string;
-  chair: string;
-  amount: number;
-  date: string;
-} | null>(null);
-
-function openReceipt(split: BarberSplitSummary, amount?: number) {
-  receiptData.value = {
-    barberName: split.barberName,
-    pixKey: split.pixKey || '',
-    chair: split.chair || 'Cadeira Principal',
-    amount: amount !== undefined ? amount : (Number(split.totalPaid) || Number(split.pendingPayout) || 0),
-    date: new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-  };
-  isReceiptModalOpen.value = true;
-}
-
-function printReceipt() {
-  window.print();
 }
 
 function exportToCsv() {
@@ -704,7 +659,6 @@ onMounted(() => {
 
         <!-- Botão Ação Aba 1: Novo Lançamento -->
         <button 
-          v-if="activeTab === 'SUMMARY'"
           @click="openCreateEntryModal('INCOME')"
           class="flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-xl shadow-emerald-500/20 transition cursor-pointer transform hover:-translate-y-0.5"
         >
@@ -721,92 +675,6 @@ onMounted(() => {
           <ShoppingBag class="w-4 h-4 stroke-[2.5]" />
           <span>Venda Rápida (PDV)</span>
         </button>
-      </div>
-    </div>
-
-    <!-- ============================================== -->
-    <!-- ABAS DE NAVEGAÇÃO SUPERIORES                   -->
-    <!-- ============================================== -->
-    <div class="flex items-center justify-between border-b border-slate-200 dark:border-white/[0.08] gap-4 overflow-x-auto no-scrollbar">
-      <div class="flex items-center gap-2">
-        <!-- Aba 1: Resumo & Extrato -->
-        <button 
-          @click="setActiveTab('SUMMARY')"
-          class="flex items-center gap-2.5 px-5 py-3.5 border-b-2 font-bold text-sm tracking-wide transition cursor-pointer whitespace-nowrap"
-          :class="activeTab === 'SUMMARY' 
-            ? 'border-amber-500 text-amber-600 dark:text-amber-400 font-black' 
-            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-        >
-          <DollarSign class="w-4 h-4" />
-          <span>Extrato &amp; Fluxo de Caixa</span>
-          <span 
-            class="px-2 py-0.5 rounded-full text-[10px] font-black"
-            :class="activeTab === 'SUMMARY' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-slate-100 dark:bg-white/5 text-slate-500'"
-          >
-            {{ entries.length }}
-          </span>
-        </button>
-
-        <!-- Aba 2: Split Salão-Parceiro -->
-        <button 
-          @click="setActiveTab('SPLITS')"
-          class="flex items-center gap-2.5 px-5 py-3.5 border-b-2 font-bold text-sm tracking-wide transition cursor-pointer whitespace-nowrap"
-          :class="activeTab === 'SPLITS' 
-            ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400 font-black' 
-            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-        >
-          <Split class="w-4 h-4" />
-          <span>Split Salão-Parceiro &amp; Pix</span>
-          <span 
-            class="px-2 py-0.5 rounded-full text-[10px] font-black"
-            :class="activeTab === 'SPLITS' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-white/5 text-slate-500'"
-          >
-            {{ splits.length }} Barbeiros
-          </span>
-        </button>
-      </div>
-
-      <!-- Alternador Cards vs Lista (de acordo com a aba ativa) -->
-      <div class="flex items-center gap-1 p-1 bg-slate-100 dark:bg-white/[0.04] rounded-xl border border-slate-200 dark:border-white/10 shrink-0">
-        <template v-if="activeTab === 'SUMMARY'">
-          <button 
-            @click="setEntryViewMode('LIST')" 
-            :class="entryViewMode === 'LIST' ? 'bg-white dark:bg-[#121824] shadow-sm text-slate-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
-            class="p-1.5 rounded-lg transition cursor-pointer"
-            title="Visualização em Lista / Tabela"
-          >
-            <List class="w-4 h-4" />
-          </button>
-          <button 
-            @click="setEntryViewMode('CARDS')" 
-            :class="entryViewMode === 'CARDS' ? 'bg-white dark:bg-[#121824] shadow-sm text-slate-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
-            class="p-1.5 rounded-lg transition cursor-pointer"
-            title="Visualização em Cards"
-          >
-            <LayoutGrid class="w-4 h-4" />
-          </button>
-        </template>
-
-        <template v-else-if="activeTab === 'SPLITS'">
-          <button 
-            @click="setSplitViewMode('CARDS')" 
-            :class="splitViewMode === 'CARDS' ? 'bg-white dark:bg-[#121824] shadow-sm text-slate-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
-            class="p-1.5 rounded-lg transition cursor-pointer"
-            title="Visualização em Cards"
-          >
-            <LayoutGrid class="w-4 h-4" />
-          </button>
-          <button 
-            @click="setSplitViewMode('LIST')" 
-            :class="splitViewMode === 'LIST' ? 'bg-white dark:bg-[#121824] shadow-sm text-slate-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
-            class="p-1.5 rounded-lg transition cursor-pointer"
-            title="Visualização em Lista / Tabela"
-          >
-            <List class="w-4 h-4" />
-          </button>
-        </template>
-
-        
       </div>
     </div>
 
@@ -890,7 +758,7 @@ onMounted(() => {
     <!-- ========================================================================= -->
     <!-- ABA 1: RESUMO & EXTRATO FINANCEIRO                                        -->
     <!-- ========================================================================= -->
-    <div v-if="activeTab === 'SUMMARY'" class="space-y-6">
+    <div class="space-y-6">
       <!-- Barra de Filtros e Busca de Lançamentos -->
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
         <!-- Input de Busca -->
@@ -1131,249 +999,6 @@ onMounted(() => {
     </div>
 
     <!-- ========================================================================= -->
-    <!-- ABA 2: SPLIT SALÃO-PARCEIRO & PIX (LEI 13.352)                            -->
-    <!-- ========================================================================= -->
-    <div v-if="activeTab === 'SPLITS'" class="space-y-6">
-      <!-- Banner Educativo Lei Salão-Parceiro -->
-      <div class="p-5 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-amber-500/10 border border-emerald-500/20 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div class="space-y-1">
-          <div class="flex items-center gap-2">
-            <ShieldCheck class="w-5 h-5 text-emerald-500" />
-            <h3 class="font-black text-sm text-slate-900 dark:text-white">
-              Split Salão-Parceiro Conforme Lei Federal nº 13.352/2016
-            </h3>
-          </div>
-          <p class="text-xs text-slate-600 dark:text-slate-300 max-w-3xl">
-            A cota repassada ao profissional-parceiro não integra a receita bruta da barbearia, eliminando a bitributação no Simples Nacional e garantindo segurança jurídica total com 1 clique no Pix.
-          </p>
-        </div>
-
-        <div class="flex items-center gap-3 shrink-0">
-          <div class="text-right">
-            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Pendente da Equipe</span>
-            <div class="text-xl font-black text-amber-600 dark:text-amber-400">
-              {{ formatMoney(summary.pendingCommissions) }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Barra de Busca de Profissionais -->
-      <div class="flex items-center justify-between gap-4">
-        <div class="relative flex-1 max-w-md">
-          <Search class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input 
-            v-model="splitSearchQuery" 
-            type="text" 
-            placeholder="Buscar por nome do barbeiro ou chave Pix..."
-            class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white dark:bg-[#0e131d] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-          />
-        </div>
-      </div>
-
-      <!-- VISUALIZAÇÃO EM CARDS DOS BARBEIROS -->
-      <div v-if="splitViewMode === 'CARDS'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div 
-          v-for="barberSplit in filteredSplits" 
-          :key="barberSplit.barberId"
-          class="bg-white dark:bg-[#0e131d] rounded-2xl p-6 border border-slate-200 dark:border-white/[0.08] shadow-sm relative overflow-hidden group hover:border-emerald-500/40 transition flex flex-col justify-between"
-        >
-          <div>
-            <!-- Cabeçalho do Card: Avatar, Nome, Comissão % -->
-            <div class="flex items-start justify-between gap-3">
-              <div class="flex items-center gap-3">
-                <img 
-                  :src="barberSplit.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200'" 
-                  :alt="barberSplit.barberName"
-                  class="w-12 h-12 rounded-xl object-cover border border-slate-200 dark:border-white/10 shadow-sm"
-                />
-                <div>
-                  <h3 class="font-black text-slate-900 dark:text-white text-base">
-                    {{ barberSplit.barberName }}
-                  </h3>
-                  <div class="flex items-center gap-1.5 mt-0.5">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                      {{ barberSplit.commissionRate }}% Comissão Padrão
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Dados de Chave Pix com Botão de Copiar -->
-            <div class="mt-4 p-3 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.06] flex items-center justify-between gap-2">
-              <div class="truncate">
-                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Chave Pix Cadastrada</div>
-                <div class="text-xs font-mono font-bold text-slate-700 dark:text-slate-200 truncate">
-                  {{ barberSplit.pixKey || 'Não cadastrada' }}
-                </div>
-              </div>
-              <button 
-                v-if="barberSplit.pixKey"
-                @click="copyPix(barberSplit.pixKey)"
-                class="p-2 rounded-lg bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:text-emerald-500 transition cursor-pointer shrink-0"
-                :title="copiedPixKey === barberSplit.pixKey ? 'Copiado!' : 'Copiar Chave Pix'"
-              >
-                <Check v-if="copiedPixKey === barberSplit.pixKey" class="w-3.5 h-3.5 text-emerald-500" />
-                <Copy v-else class="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <!-- Métricas Financeiras do Barbeiro -->
-            <div class="grid grid-cols-2 gap-3 mt-4">
-              <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
-                <div class="text-[10px] font-bold text-slate-400 uppercase">Faturamento Bruto</div>
-                <div class="text-sm font-black text-slate-900 dark:text-white mt-0.5">
-                  {{ formatMoney(barberSplit.totalGrossRevenue) }}
-                </div>
-                <div class="text-[9px] text-slate-400 mt-0.5">
-                  {{ barberSplit.servicesCount }} serv. | {{ barberSplit.productsCount }} prod.
-                </div>
-              </div>
-
-              <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
-                <div class="text-[10px] font-bold text-slate-400 uppercase">Cota Barbearia</div>
-                <div class="text-sm font-black text-slate-900 dark:text-white mt-0.5">
-                  {{ formatMoney(barberSplit.salonRetainedShare) }}
-                </div>
-                <div class="text-[9px] text-slate-400 mt-0.5">
-                  Estrutura &amp; Cadeira
-                </div>
-              </div>
-
-              <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
-                <div class="text-[10px] font-bold text-slate-400 uppercase">Total Ganho</div>
-                <div class="text-sm font-black text-emerald-600 dark:text-emerald-400 mt-0.5">
-                  {{ formatMoney(barberSplit.totalCommissionEarned) }}
-                </div>
-                <div class="text-[9px] text-slate-400 mt-0.5">
-                  Comissão acumulada
-                </div>
-              </div>
-
-              <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
-                <div class="text-[10px] font-bold text-slate-400 uppercase">Já Repassado</div>
-                <div class="text-sm font-black text-slate-700 dark:text-slate-300 mt-0.5">
-                  {{ formatMoney(barberSplit.totalCommissionPaid) }}
-                </div>
-                <div class="text-[9px] text-slate-400 mt-0.5">
-                  Baixas efetuadas
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Rodapé do Card: Saldo Pendente e Botão Repassar Pix -->
-          <div class="mt-6 pt-4 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-3">
-            <div>
-              <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Saldo a Pagar</div>
-              <div class="text-lg font-black" :class="barberSplit.pendingPayout > 0 ? 'text-amber-500' : 'text-slate-400'">
-                {{ formatMoney(barberSplit.pendingPayout) }}
-              </div>
-            </div>
-
-            <button 
-              @click="openPayoutModal(barberSplit)"
-              :disabled="barberSplit.pendingPayout <= 0"
-              class="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition cursor-pointer shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
-              :class="barberSplit.pendingPayout > 0 ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-emerald-500/20 hover:opacity-95' : 'bg-slate-200 dark:bg-white/10 text-slate-500'"
-            >
-              <Split class="w-3.5 h-3.5" />
-              <span>Dar Baixa Pix</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- VISUALIZAÇÃO EM TABELA / LISTA DOS BARBEIROS -->
-      <div v-else class="bg-white dark:bg-[#0e131d] rounded-2xl border border-slate-200 dark:border-white/[0.08] shadow-sm overflow-hidden">
-        <div class="overflow-x-auto no-scrollbar">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-slate-50 dark:bg-white/[0.02] border-b border-slate-200 dark:border-white/[0.06] text-slate-400 uppercase tracking-wider font-bold text-[10px]">
-              <tr>
-                <th class="px-5 py-3.5">Profissional</th>
-                <th class="px-5 py-3.5">Chave Pix</th>
-                <th class="px-5 py-3.5 text-right">Faturamento Bruto</th>
-                <th class="px-5 py-3.5 text-right">Comissão Ganha</th>
-                <th class="px-5 py-3.5 text-right">Já Pago</th>
-                <th class="px-5 py-3.5 text-right">Saldo Pendente</th>
-                <th class="px-5 py-3.5 text-right">Ação</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-white/[0.04]">
-              <tr 
-                v-for="barberSplit in filteredSplits" 
-                :key="barberSplit.barberId"
-                class="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition"
-              >
-                <!-- Profissional -->
-                <td class="px-5 py-4 whitespace-nowrap">
-                  <div class="flex items-center gap-3">
-                    <img 
-                      :src="barberSplit.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200'" 
-                      :alt="barberSplit.barberName"
-                      class="w-8 h-8 rounded-lg object-cover"
-                    />
-                    <div>
-                      <div class="font-bold text-slate-900 dark:text-white">{{ barberSplit.barberName }}</div>
-                      <div class="text-[10px] text-amber-500 font-bold">{{ barberSplit.commissionRate }}% comissão</div>
-                    </div>
-                  </div>
-                </td>
-
-                <!-- Chave Pix -->
-                <td class="px-5 py-4 whitespace-nowrap">
-                  <div class="flex items-center gap-2">
-                    <span class="font-mono text-[11px] text-slate-600 dark:text-slate-300">{{ barberSplit.pixKey || '—' }}</span>
-                    <button 
-                      v-if="barberSplit.pixKey"
-                      @click="copyPix(barberSplit.pixKey)"
-                      class="text-slate-400 hover:text-emerald-500 cursor-pointer"
-                    >
-                      <Copy class="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </td>
-
-                <!-- Faturamento Bruto -->
-                <td class="px-5 py-4 whitespace-nowrap text-right font-bold text-slate-900 dark:text-white">
-                  {{ formatMoney(barberSplit.totalGrossRevenue) }}
-                </td>
-
-                <!-- Comissão Ganha -->
-                <td class="px-5 py-4 whitespace-nowrap text-right font-bold text-emerald-600 dark:text-emerald-400">
-                  {{ formatMoney(barberSplit.totalCommissionEarned) }}
-                </td>
-
-                <!-- Já Pago -->
-                <td class="px-5 py-4 whitespace-nowrap text-right font-medium text-slate-500 dark:text-slate-400">
-                  {{ formatMoney(barberSplit.totalCommissionPaid) }}
-                </td>
-
-                <!-- Saldo Pendente -->
-                <td class="px-5 py-4 whitespace-nowrap text-right font-black text-sm" :class="barberSplit.pendingPayout > 0 ? 'text-amber-500' : 'text-slate-400'">
-                  {{ formatMoney(barberSplit.pendingPayout) }}
-                </td>
-
-                <!-- Ação -->
-                <td class="px-5 py-4 whitespace-nowrap text-right">
-                  <button 
-                    @click="openPayoutModal(barberSplit)"
-                    :disabled="barberSplit.pendingPayout <= 0"
-                    class="px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wider transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    :class="barberSplit.pendingPayout > 0 ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-slate-100 dark:bg-white/5 text-slate-400'"
-                  >
-                    Pagar Pix
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================================================= -->
     <!-- MODAL 1: NOVO LANÇAMENTO (RECEITA OU DESPESA)                             -->
     <!-- ========================================================================= -->
     <div v-if="isEntryModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">
@@ -1545,119 +1170,7 @@ onMounted(() => {
     </div>
 
     <!-- ========================================================================= -->
-    <!-- MODAL 2: REPASSE PIX AO BARBEIRO (LEI 13.352)                             -->
-    <!-- ========================================================================= -->
-    <div v-if="isPayoutModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">
-      <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-md w-full p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto no-scrollbar">
-        <!-- Topo Modal -->
-        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.08]">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-2xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center font-black">
-              <Split class="w-5 h-5" />
-            </div>
-            <div>
-              <h2 class="text-lg font-black text-slate-900 dark:text-white">
-                Dar Baixa de Repasse Pix
-              </h2>
-              <p class="text-xs text-slate-500 dark:text-slate-400">
-                Split Lei 13.352 para {{ selectedBarberForPayout?.barberName }}
-              </p>
-            </div>
-          </div>
-          <button @click="isPayoutModalOpen = false" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
-            <X class="w-5 h-5" />
-          </button>
-        </div>
-
-        <!-- Chave Pix Destino -->
-        <div class="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 space-y-2">
-          <div class="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider flex items-center justify-between">
-            <span>Chave Pix do Profissional</span>
-            <span class="text-[10px] bg-emerald-500 text-slate-950 px-2 py-0.5 rounded-full font-black">PIX CADASTRADO</span>
-          </div>
-          <div class="flex items-center justify-between gap-2">
-            <span class="font-mono font-black text-sm text-slate-900 dark:text-white truncate">
-              {{ selectedBarberForPayout?.pixKey || 'Chave não cadastrada no perfil' }}
-            </span>
-            <button 
-              v-if="selectedBarberForPayout?.pixKey"
-              @click="copyPix(selectedBarberForPayout.pixKey)"
-              class="px-2.5 py-1 rounded-lg bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-emerald-500 transition cursor-pointer shrink-0"
-            >
-              Copiar Pix
-            </button>
-          </div>
-        </div>
-
-        <!-- Formulário de Pagamento -->
-        <div class="space-y-4">
-          <div>
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              Valor a Repassar (R$) *
-            </label>
-            <input 
-              v-model.number="payoutForm.amount"
-              type="number" 
-              step="0.01" 
-              min="0.01"
-              class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-base font-black text-emerald-600 dark:text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-            />
-            <p class="text-[11px] text-slate-400 mt-1">
-              Saldo total pendente: <span class="font-bold text-slate-700 dark:text-slate-200">{{ formatMoney(selectedBarberForPayout?.pendingPayout) }}</span>
-            </p>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              Método de Transferência
-            </label>
-            <select 
-              v-model="payoutForm.paymentMethod"
-              class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-emerald-500/30 cursor-pointer"
-            >
-              <option value="PIX" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Pix Direto</option>
-              <option value="CASH" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Dinheiro em Espécie</option>
-              <option value="TRANSFER" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Transferência Bancária / TED</option>
-            </select>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              Notas ou Comprovante (Opcional)
-            </label>
-            <input 
-              v-model="payoutForm.notes"
-              type="text" 
-              placeholder="Ex: TxID Pix #93821, fechamento da semana"
-              class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-            />
-          </div>
-        </div>
-
-        <!-- Botões Rodapé -->
-        <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-white/[0.08]">
-          <button 
-            type="button" 
-            @click="isPayoutModalOpen = false"
-            class="px-5 py-3 rounded-2xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 font-bold text-xs uppercase tracking-wider cursor-pointer"
-          >
-            Cancelar
-          </button>
-          <button 
-            type="button" 
-            @click="handleConfirmPayout"
-            :disabled="saving"
-            class="flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-xl shadow-emerald-500/20 cursor-pointer disabled:opacity-50"
-          >
-            <Loader2 v-if="saving" class="w-4 h-4 animate-spin" />
-            <span>Confirmar Baixa Pix</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================================================= -->
-    <!-- MODAL 4: VENDA RÁPIDA / PDV NO BALCÃO                                     -->
+    <!-- MODAL 2: VENDA RÁPIDA / PDV NO BALCÃO                                     -->
     <!-- ========================================================================= -->
     <div v-if="isSellModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">
       <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto no-scrollbar">

@@ -92,6 +92,16 @@ export const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/commissions',
+      name: 'commissions',
+      component: () => import('../views/CommissionsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/splits',
+      redirect: '/commissions',
+    },
+    {
       path: '/tv-media',
       name: 'tv-media',
       component: () => import('../views/TvMediaView.vue'),

@@ -442,13 +442,18 @@ export interface BarberSplitSummary {
   chair?: string;
   commissionRate: number;
   totalServicesRevenue: number;
+  servicesTotal?: number;
   totalProductsRevenue: number;
+  productsTotal?: number;
   totalGrossRevenue: number;
+  totalGross?: number;
   totalCommissionEarned: number;
+  totalCommissions?: number;
   totalCommissionPaid: number;
   totalPaid?: number;
   pendingPayout: number;
   salonRetainedShare: number;
+  salonRetained?: number;
   servicesCount: number;
   productsCount: number;
 }
