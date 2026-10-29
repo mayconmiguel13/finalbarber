@@ -427,11 +427,17 @@ export interface FinancialSummary {
   totalIncome: number;
   totalExpense: number;
   netProfit: number;
+  netSalonIncome?: number;
+  profitMargin?: number;
   totalCommissionsGenerated: number;
   totalCommissionsPaid: number;
   pendingCommissions: number;
+  periodPendingCommissions?: number;
+  pendingExpensesCount?: number;
+  pendingExpensesTotal?: number;
+  paymentMethods?: Record<string, { total: number; count: number; percentage: number }>;
   entryCount: number;
-  recentEntries: FinancialEntry[];
+  recentEntries?: FinancialEntry[];
 }
 
 export interface BarberSplitSummary {
@@ -944,6 +950,15 @@ export const api = {
     return resData;
   },
 
+  async settleFinancialEntry(id: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`/api/financial/entries/${id}/settle`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao liquidar lançamento');
+    return resData;
+  },
   async deleteFinancialEntry(id: string): Promise<{ success: boolean; message: string }> {
     const res = await fetch(`/api/financial/entries/${id}`, {
       method: 'DELETE',

@@ -167,15 +167,55 @@ export async function financialRoutes(app: FastifyInstance) {
 
       const periodPendingCommissions = Math.max(0, totalCommissionsGenerated - totalCommissionsPaid);
       const netProfit = totalIncome - totalExpense;
+      const netSalonIncome = Math.max(0, totalIncome - totalCommissionsGenerated);
+      const profitMargin = totalIncome > 0 ? Number(((netProfit / totalIncome) * 100).toFixed(1)) : 0;
+
+      // Despesas pendentes / Contas a pagar futuras
+      let pendingExpensesCount = 0;
+      let pendingExpensesTotal = 0;
+
+      // Distribuição por formas de pagamento
+      const paymentMethodsMap: Record<string, { total: number; count: number }> = {};
+
+      for (const e of entries) {
+        const val = Number(e.amount) || 0;
+        if (e.type === 'EXPENSE' && e.status === 'PENDING') {
+          pendingExpensesCount++;
+          pendingExpensesTotal += val;
+        }
+
+        if (e.type === 'INCOME') {
+          const pm = (e.paymentMethod || 'PIX').toUpperCase();
+          if (!paymentMethodsMap[pm]) {
+            paymentMethodsMap[pm] = { total: 0, count: 0 };
+          }
+          paymentMethodsMap[pm].total += val;
+          paymentMethodsMap[pm].count += 1;
+        }
+      }
+
+      const paymentMethods: Record<string, { total: number; count: number; percentage: number }> = {};
+      for (const [pm, data] of Object.entries(paymentMethodsMap)) {
+        paymentMethods[pm] = {
+          total: data.total,
+          count: data.count,
+          percentage: totalIncome > 0 ? Number(((data.total / totalIncome) * 100).toFixed(1)) : 0,
+        };
+      }
 
       return {
         totalIncome,
         totalExpense,
         netProfit,
+        netSalonIncome,
+        profitMargin,
         totalCommissionsGenerated,
         totalCommissionsPaid,
         pendingCommissions: allTimePending,
         periodPendingCommissions,
+        pendingExpensesCount,
+        pendingExpensesTotal,
+        paymentMethods,
         entryCount: entries.length,
       };
     } catch (err: any) {
@@ -210,6 +250,7 @@ export async function financialRoutes(app: FastifyInstance) {
           f.barberId,
           f.barberCommission,
           f.paidAt,
+          f.dueDate,
           f.createdAt,
           u.name AS barberName,
           u.avatarUrl AS barberAvatar
@@ -278,6 +319,7 @@ export async function financialRoutes(app: FastifyInstance) {
       status: z.string().default('PAID'),
       barberId: z.string().optional().nullable(),
       barberCommission: z.number().default(0),
+      dueDate: z.string().optional().nullable(),
     });
 
     const parse = schema.safeParse(request.body);
@@ -287,10 +329,14 @@ export async function financialRoutes(app: FastifyInstance) {
     const id = 'fin_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
 
     try {
+      const isPaid = data.status === 'PAID';
+      const paidDate = isPaid ? new Date() : null;
+      const dueDate = data.dueDate ? new Date(data.dueDate) : null;
+
       await prisma.$queryRawUnsafe(`
-        INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())
-      `, id, orgId, data.type, data.category, data.description, data.amount, data.paymentMethod, data.status, data.barberId || null, data.barberCommission || 0);
+        INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+      `, id, orgId, data.type, data.category, data.description, data.amount, data.paymentMethod, data.status, data.barberId || null, data.barberCommission || 0, paidDate, dueDate);
 
       return {
         success: true,
@@ -298,6 +344,46 @@ export async function financialRoutes(app: FastifyInstance) {
       };
     } catch (err: any) {
       return reply.status(500).send({ error: 'Erro ao registrar lançamento.' });
+    }
+  });
+
+  // PATCH /api/financial/entries/:id/settle - Dar baixa em lançamento pendente (marcar como pago)
+  app.patch('/financial/entries/:id/settle', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
+    const { id } = request.params;
+
+    try {
+      const existing: any[] = await prisma.$queryRawUnsafe(
+        'SELECT id FROM financial_entries WHERE id = ? AND orgId = ?',
+        id,
+        orgId
+      );
+
+      if (!existing || existing.length === 0) {
+        return reply.status(404).send({ error: 'Lançamento não encontrado.' });
+      }
+
+      await prisma.$queryRawUnsafe(
+        'UPDATE financial_entries SET status = ?, paidAt = NOW(), updatedAt = NOW() WHERE id = ? AND orgId = ?',
+        'PAID',
+        id,
+        orgId
+      );
+
+      return {
+        success: true,
+        message: 'Lançamento liquidado com sucesso!',
+      };
+    } catch (err: any) {
+      console.error('[Settle financial entry error]', err);
+      return reply.status(500).send({ error: 'Erro ao liquidar lançamento.' });
     }
   });
 

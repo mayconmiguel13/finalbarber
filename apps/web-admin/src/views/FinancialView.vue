@@ -33,6 +33,7 @@ import {
   CreditCard,
   Beer,
   Layers,
+  Calculator, ChevronDown, ChevronUp, AlertCircle, CalendarClock, PieChart,
   FileText
 } from 'lucide-vue-next';
 import { 
@@ -50,6 +51,87 @@ const toast = useToastStore();
 
 // ================= NAVEGAÇÃO DE ABAS =================
 // ================= MODOS DE VISUALIZAÇÃO (CARDS vs LISTA) =================
+
+// ================= PILARES EXECUTIVOS: DRE, STATUS & CONCILIAÇÃO =================
+const isDreOpen = ref(true);
+function toggleDre() {
+  playPopSound();
+  isDreOpen.value = !isDreOpen.value;
+}
+
+// Filtro de Status de Pagamento
+const entryStatusFilter = ref<'ALL' | 'PAID' | 'PENDING' | 'OVERDUE'>('ALL');
+
+// Helpers de Status e Vencimento
+function isOverdue(dueDateStr?: string | null): boolean {
+  if (!dueDateStr) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDateStr);
+  due.setHours(0, 0, 0, 0);
+  return due.getTime() < today.getTime();
+}
+
+function isDueToday(dueDateStr?: string | null): boolean {
+  if (!dueDateStr) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDateStr);
+  due.setHours(0, 0, 0, 0);
+  return due.getTime() === today.getTime();
+}
+
+function getEntryStatusBadge(entry: FinancialEntry) {
+  if (entry.status === 'PAID') {
+    return {
+      label: 'Pago',
+      class: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold',
+      isOverdue: false
+    };
+  }
+
+  if (isOverdue(entry.dueDate)) {
+    return {
+      label: 'Vencido',
+      class: 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 font-black animate-pulse',
+      isOverdue: true
+    };
+  }
+
+  if (isDueToday(entry.dueDate)) {
+    return {
+      label: 'Vence Hoje',
+      class: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40 font-black',
+      isOverdue: false
+    };
+  }
+
+  return {
+    label: entry.dueDate ? `Vence em ${formatDate(entry.dueDate).slice(0, 5)}` : 'Pendente',
+    class: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-semibold',
+    isOverdue: false
+  };
+}
+
+// Dar baixa rápida em conta pendente
+async function handleSettleEntry(entry: FinancialEntry) {
+  playPopSound();
+  saving.value = true;
+  try {
+    await api.settleFinancialEntry(entry.id);
+    toast.success('Lançamento liquidado e registrado como pago!', 'Conta Paga');
+    if (selectedEntryForDetail.value && selectedEntryForDetail.value.id === entry.id) {
+      selectedEntryForDetail.value.status = 'PAID';
+      selectedEntryForDetail.value.paidAt = new Date().toISOString();
+    }
+    await loadAllData();
+  } catch (err: any) {
+    toast.error(err.message || 'Erro ao liquidar lançamento.', 'Falha');
+  } finally {
+    saving.value = false;
+  }
+}
+
 const entryViewMode = ref<'CARDS' | 'LIST'>(
   (localStorage.getItem('barbly_entry_view') as 'CARDS' | 'LIST') || 'LIST'
 );
@@ -1311,16 +1393,28 @@ onMounted(() => {
           </button>
         </div>
 
-        <!-- Botões de Ação Rodapé -->
+                <!-- Botões de Ação Rodapé -->
         <div class="flex items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-white/[0.08] print:hidden">
-          <button 
-            type="button" 
-            @click="confirmDeleteEntry(selectedEntryForDetail); isDetailModalOpen = false;"
-            class="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
-          >
-            <Trash2 class="w-4 h-4" />
-            <span>Excluir Lançamento</span>
-          </button>
+          <div class="flex items-center gap-2">
+            <button 
+              type="button" 
+              @click="confirmDeleteEntry(selectedEntryForDetail); isDetailModalOpen = false;"
+              class="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+            >
+              <Trash2 class="w-4 h-4" />
+              <span>Excluir</span>
+            </button>
+
+            <button 
+              v-if="selectedEntryForDetail.status === 'PENDING'"
+              type="button" 
+              @click="handleSettleEntry(selectedEntryForDetail); isDetailModalOpen = false;"
+              class="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-md"
+            >
+              <Check class="w-4 h-4 stroke-[3]" />
+              <span>Dar Baixa (Pagar)</span>
+            </button>
+          </div>
 
           <button 
             type="button" 
@@ -1330,7 +1424,6 @@ onMounted(() => {
             Fechar
           </button>
         </div>
-
       </div>
     </div>
 
