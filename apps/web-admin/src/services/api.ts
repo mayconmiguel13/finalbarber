@@ -528,6 +528,10 @@ export interface BookingPolicies {
   chairCleanupMinutes: number;
   cancelNoticeHours: number;
   welcomeMessage?: string;
+  aiTone?: 'CLASSIC' | 'MODERN' | 'URBAN';
+  aiCustomPrompt?: string;
+  metaPixelId?: string;
+  googleAnalyticsId?: string;
 }
 
 export interface OrgSettings {

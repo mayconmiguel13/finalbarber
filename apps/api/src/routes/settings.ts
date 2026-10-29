@@ -29,6 +29,10 @@ export const defaultBookingPolicies = {
   chairCleanupMinutes: 5,
   cancelNoticeHours: 2,
   welcomeMessage: 'Bem-vindo ao nosso espaço! Chegue com 5 minutos de antecedência. Café e Wi-Fi de cortesia disponíveis.',
+  aiTone: 'MODERN',
+  aiCustomPrompt: '',
+  metaPixelId: '',
+  googleAnalyticsId: '',
 };
 
 export async function settingsRoutes(app: FastifyInstance) {
@@ -80,6 +84,10 @@ export async function settingsRoutes(app: FastifyInstance) {
       chairCleanupMinutes: z.number().min(0).max(60).default(5),
       cancelNoticeHours: z.number().min(0).max(72).default(2),
       welcomeMessage: z.string().max(500).optional().nullable(),
+      aiTone: z.enum(['CLASSIC', 'MODERN', 'URBAN']).default('MODERN').optional(),
+      aiCustomPrompt: z.string().max(500).optional().nullable(),
+      metaPixelId: z.string().max(100).optional().nullable(),
+      googleAnalyticsId: z.string().max(100).optional().nullable(),
     }).optional().nullable(),
 
     // Taxas de Cartão & Operadora (Adquirência)

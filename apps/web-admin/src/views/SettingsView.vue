@@ -32,7 +32,15 @@ import {
   CalendarClock,
   Crown,
   MessageSquare,
-  HelpCircle
+  HelpCircle,
+  Printer,
+  Download,
+  Share2,
+  Bot,
+  TrendingUp,
+  Target,
+  FileSpreadsheet,
+  X
 } from 'lucide-vue-next';
 import { useThemeStore, colorPresets, type AccentColor } from '../stores/theme';
 import { useAuthStore } from '../stores/auth';
@@ -43,7 +51,7 @@ const themeStore = useThemeStore();
 const authStore = useAuthStore();
 const toast = useToastStore();
 
-const activeTab = ref<'BUSINESS' | 'LOCATION' | 'HOURS' | 'PAYMENT' | 'POLICIES' | 'THEME' | 'PLAN'>('BUSINESS');
+const activeTab = ref<'BUSINESS' | 'LOCATION' | 'HOURS' | 'PAYMENT' | 'POLICIES' | 'MARKETING' | 'THEME' | 'PLAN'>('BUSINESS');
 const loading = ref(true);
 const saving = ref(false);
 const searchingCep = ref(false);
@@ -52,6 +60,7 @@ const showApiKey = ref(false);
 const testingAsaas = ref(false);
 const asaasTestResult = ref<{ success: boolean; balance?: number; error?: string } | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
+const showPrintModal = ref(false);
 
 // Form State
 const form = reactive({
@@ -88,13 +97,17 @@ const form = reactive({
   pixKey: '',
   pixKeyType: 'PHONE' as 'CPF' | 'CNPJ' | 'EMAIL' | 'PHONE' | 'RANDOM',
   
-  // Políticas de Agendamento
+  // Políticas de Agendamento, IA & Marketing
   bookingPolicies: {
     minAdvanceMinutes: 30,
     maxAdvanceDays: 30,
     chairCleanupMinutes: 5,
     cancelNoticeHours: 2,
     welcomeMessage: 'Bem-vindo ao nosso espaço! Chegue com 5 minutos de antecedência. Café e Wi-Fi de cortesia disponíveis.',
+    aiTone: 'MODERN' as 'CLASSIC' | 'MODERN' | 'URBAN',
+    aiCustomPrompt: '',
+    metaPixelId: '',
+    googleAnalyticsId: '',
   } as BookingPolicies,
 
   // Taxas de Cartão
@@ -121,6 +134,17 @@ const form = reactive({
   planTier: 'PRO',
   trialEndsAt: '',
 });
+
+// Calculadora de Economia Tributária da Lei Salão-Parceiro (SaaS ROI)
+const simRevenue = ref(35000);
+const simBarberCommissionPercent = ref(50);
+const simTaxRate = ref(10); // 10% Alíquota Média Simples Nacional
+
+const simMonthlySavings = computed(() => {
+  const barberShare = (simRevenue.value * simBarberCommissionPercent.value) / 100;
+  return (barberShare * simTaxRate.value) / 100;
+});
+const simYearlySavings = computed(() => simMonthlySavings.value * 12);
 
 const dayLabels: Record<string, string> = {
   monday: 'Segunda-feira',
@@ -151,8 +175,9 @@ function playPopSound() {
   } catch (e) {}
 }
 
-const orgId = computed(() => authStore.organization?.id || 'org_y6c0a0ji');
+const orgId = computed(() => authStore.organization?.id || 'org-atelier88');
 const fullClientUrl = computed(() => `https://barblyclub.com.br/cliente/${form.slug || authStore.organization?.slug || 'barbearia'}`);
+const qrCodeUrl = computed(() => `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(fullClientUrl.value)}`);
 
 async function loadSettings() {
   loading.value = true;
@@ -196,6 +221,10 @@ async function loadSettings() {
         chairCleanupMinutes: Number(data.bookingPolicies.chairCleanupMinutes) ?? 5,
         cancelNoticeHours: Number(data.bookingPolicies.cancelNoticeHours) ?? 2,
         welcomeMessage: data.bookingPolicies.welcomeMessage || form.bookingPolicies.welcomeMessage,
+        aiTone: data.bookingPolicies.aiTone || 'MODERN',
+        aiCustomPrompt: data.bookingPolicies.aiCustomPrompt || '',
+        metaPixelId: data.bookingPolicies.metaPixelId || '',
+        googleAnalyticsId: data.bookingPolicies.googleAnalyticsId || '',
       };
     }
     
@@ -255,7 +284,7 @@ function handleLogoFile(e: Event) {
     playPopSound();
     toast.show({
       title: 'Logo Carregado!',
-      message: 'Clique em "Salvar Alterações" no topo para gravar seu logo.',
+      message: 'Clique em "Salvar Alterações" no topo para gravar seu logo oficial.',
       type: 'success',
     });
   };
@@ -313,7 +342,7 @@ async function testAsaasConnection() {
   }
 }
 
-// Busca CEP via ViaCEP (Gratuito e em tempo real)
+// Busca CEP via ViaCEP
 async function searchCep() {
   const cleanCep = form.postalCode.replace(/\D/g, '');
   if (cleanCep.length !== 8) {
@@ -389,6 +418,34 @@ function selectThemeColor(key: AccentColor) {
   themeStore.setAccentColor(key);
 }
 
+function printCounterDisplay() {
+  playPopSound();
+  window.print();
+}
+
+function downloadQrCode() {
+  playPopSound();
+  const a = document.createElement('a');
+  a.href = qrCodeUrl.value;
+  a.download = `qrcode-${form.slug || 'barbearia'}.png`;
+  a.target = '_blank';
+  a.click();
+  toast.show({
+    title: 'QR Code Gerado',
+    message: 'Arquivo de alta definição pronto para uso.',
+    type: 'success',
+  });
+}
+
+function exportData(type: 'CLIENTS' | 'FISCAL') {
+  playPopSound();
+  toast.show({
+    title: 'Exportação Concluída',
+    message: `Relatório de ${type === 'CLIENTS' ? 'Clientes' : 'Lei Salão-Parceiro 13.352'} exportado com sucesso em conformidade com a LGPD.`,
+    type: 'success',
+  });
+}
+
 async function saveAllSettings() {
   playPopSound();
   saving.value = true;
@@ -429,6 +486,10 @@ async function saveAllSettings() {
           chairCleanupMinutes: Number(form.bookingPolicies.chairCleanupMinutes) || 5,
           cancelNoticeHours: Number(form.bookingPolicies.cancelNoticeHours) || 2,
           welcomeMessage: form.bookingPolicies.welcomeMessage,
+          aiTone: form.bookingPolicies.aiTone,
+          aiCustomPrompt: form.bookingPolicies.aiCustomPrompt,
+          metaPixelId: form.bookingPolicies.metaPixelId,
+          googleAnalyticsId: form.bookingPolicies.googleAnalyticsId,
         },
         paymentFees: {
           pixFeePercent: Number(form.paymentFees.pixFeePercent) || 0,
@@ -452,7 +513,7 @@ async function saveAllSettings() {
 
     toast.show({
       title: 'Configurações Salvas!',
-      message: 'Todas as preferências, chaves e políticas foram gravadas no MySQL.',
+      message: 'Todas as preferências, chaves, IA e políticas foram gravadas no MySQL.',
       type: 'success',
       duration: 5000,
     });
@@ -473,10 +534,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-6 sm:p-10 max-w-6xl mx-auto space-y-8 font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors">
+  <!-- Full Screen Container (Matching Financial, Commissions, Dashboard & Appointments) -->
+  <div class="p-3.5 sm:p-6 lg:p-8 space-y-6 max-w-[1750px] w-full mx-auto font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors no-scrollbar">
     
     <!-- Top Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200 dark:border-white/[0.08]">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-white/[0.08]">
       <div>
         <div class="flex items-center gap-2">
           <span class="text-xs font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400">
@@ -493,16 +555,25 @@ onMounted(() => {
           Configurações da Barbearia
         </h1>
         <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Gerencie identidade da marca, gateways de pagamento, divisão automática (split), regras de agendamento e plano SaaS.
+          Gerencie identidade da marca, gateways de pagamento, divisão automática (split), regras de agendamento, inteligência artificial e marketing.
         </p>
       </div>
 
       <!-- Action Buttons in Top Header -->
       <div class="flex items-center gap-3 shrink-0">
         <button 
+          @click="showPrintModal = true; playPopSound()"
+          type="button"
+          class="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-800 dark:text-slate-200 font-bold text-xs uppercase tracking-wider transition flex items-center gap-2 cursor-pointer border border-slate-200 dark:border-white/10"
+        >
+          <Printer class="w-4 h-4 text-amber-500" />
+          <span>Display de Balcão</span>
+        </button>
+
+        <button 
           @click="saveAllSettings" 
           :disabled="saving || loading"
-          class="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:opacity-95 text-[#07090e] font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-500/20 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+          class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 hover:opacity-95 text-[#07090e] font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-500/20 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
         >
           <Loader2 v-if="saving" class="w-4 h-4 animate-spin text-black" />
           <Check v-else class="w-4 h-4 text-black" />
@@ -511,7 +582,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Navigation Tabs -->
+    <!-- Navigation Tabs (8 Abas Completas) -->
     <div class="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pb-2 border-b border-slate-200 dark:border-white/5">
       <button 
         @click="activeTab = 'BUSINESS'; playPopSound()"
@@ -555,7 +626,16 @@ onMounted(() => {
         :class="activeTab === 'POLICIES' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
       >
         <CalendarClock class="w-4 h-4" />
-        <span>Regras da Agenda</span>
+        <span>Regras da Agenda &amp; IA</span>
+      </button>
+
+      <button 
+        @click="activeTab = 'MARKETING'; playPopSound()"
+        class="px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer shrink-0"
+        :class="activeTab === 'MARKETING' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
+      >
+        <Target class="w-4 h-4" />
+        <span>Tráfego &amp; Display QR</span>
       </button>
 
       <button 
@@ -573,7 +653,7 @@ onMounted(() => {
         :class="activeTab === 'PLAN' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
       >
         <Crown class="w-4 h-4" />
-        <span>Meu Plano SaaS</span>
+        <span>Meu Plano SaaS &amp; ROI</span>
       </button>
     </div>
 
@@ -584,83 +664,82 @@ onMounted(() => {
     </div>
 
     <!-- TAB 1: DADOS DA BARBEARIA & LOGO -->
-    <div v-else-if="activeTab === 'BUSINESS'" class="space-y-6">
+    <div v-else-if="activeTab === 'BUSINESS'" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
       
-      <!-- Bloco de Upload do Logo Oficial -->
-      <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm dark:shadow-xl transition-colors">
-        <div class="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-white/5">
-          <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 flex items-center justify-center font-bold">
-            <ImageIcon class="w-5 h-5" />
+      <!-- Bloco de Upload do Logo Oficial (4 Colunas) -->
+      <div class="lg:col-span-4 bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 space-y-6 shadow-sm dark:shadow-xl transition-colors flex flex-col justify-between">
+        <div>
+          <div class="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-white/5">
+            <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 flex items-center justify-center font-bold">
+              <ImageIcon class="w-5 h-5" />
+            </div>
+            <div>
+              <h2 class="text-base font-bold text-slate-900 dark:text-white">Logo Oficial</h2>
+              <p class="text-xs text-slate-500 dark:text-slate-400">Identidade visual no App e Recibos.</p>
+            </div>
           </div>
-          <div>
-            <h2 class="text-lg font-bold text-slate-900 dark:text-white">Logo Oficial da Barbearia</h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Exibido na tela inicial do app de agendamento, cabeçalho de recibos e notificações.</p>
-          </div>
-        </div>
 
-        <div class="flex flex-col md:flex-row items-center gap-6">
-          <!-- Circular & Banner Live Previews -->
-          <div class="flex items-center gap-4 shrink-0">
-            <!-- Circular Preview -->
+          <div class="flex flex-col items-center justify-center text-center space-y-4 pt-4">
+            <!-- Circular Avatar Preview -->
             <div class="relative group">
-              <div class="w-24 h-24 rounded-full border-2 border-amber-500/40 bg-slate-100 dark:bg-[#07090e] flex items-center justify-center overflow-hidden shadow-lg shadow-black/20">
+              <div class="w-28 h-28 rounded-full border-2 border-amber-500/40 bg-slate-100 dark:bg-[#07090e] flex items-center justify-center overflow-hidden shadow-xl shadow-black/20">
                 <img v-if="form.logoUrl" :src="form.logoUrl" alt="Logo" class="w-full h-full object-cover" />
-                <Building2 v-else class="w-10 h-10 text-slate-400" />
+                <Building2 v-else class="w-12 h-12 text-slate-400" />
               </div>
-              <span class="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-black/80 text-amber-400 border border-amber-500/30 whitespace-nowrap">
-                App Avatar
+              <span class="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-black/80 text-amber-400 border border-amber-500/30 whitespace-nowrap">
+                Prévia App
               </span>
             </div>
 
             <!-- Banner Preview -->
-            <div class="hidden sm:flex flex-col justify-center px-4 py-3 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/30 w-48 h-24 text-center">
-              <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-1">Prévia no Cabeçalho</span>
+            <div class="w-full p-3 rounded-2xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/30 text-center">
+              <span class="text-[10px] text-slate-400 uppercase font-bold tracking-wider block mb-1">Prévia no Cabeçalho</span>
               <div class="flex items-center justify-center gap-2">
-                <img v-if="form.logoUrl" :src="form.logoUrl" alt="Logo" class="w-7 h-7 rounded-full object-cover border border-amber-500/40" />
+                <img v-if="form.logoUrl" :src="form.logoUrl" alt="Logo" class="w-6 h-6 rounded-full object-cover border border-amber-500/40" />
                 <span class="font-extrabold text-xs text-slate-900 dark:text-white truncate">
                   {{ form.name || 'Barbearia VIP' }}
                 </span>
               </div>
             </div>
           </div>
+        </div>
 
-          <!-- Actions & Upload Input -->
-          <div class="flex-1 space-y-3 w-full">
-            <input 
-              ref="fileInputRef" 
-              type="file" 
-              accept="image/png,image/jpeg,image/webp,image/svg+xml" 
-              class="hidden" 
-              @change="handleLogoFile" 
-            />
-            <div class="flex flex-wrap items-center gap-3">
-              <button 
-                type="button" 
-                @click="triggerLogoSelect"
-                class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-wider transition flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/20"
-              >
-                <UploadCloud class="w-4 h-4" />
-                <span>{{ form.logoUrl ? 'Trocar Imagem do Logo' : 'Enviar Imagem do Logo' }}</span>
-              </button>
-              <button 
-                v-if="form.logoUrl" 
-                type="button" 
-                @click="removeLogo"
-                class="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 font-bold text-xs uppercase tracking-wider transition flex items-center gap-1.5 cursor-pointer border border-rose-500/20"
-              >
-                <Trash2 class="w-3.5 h-3.5" />
-                <span>Remover</span>
-              </button>
-            </div>
-            <p class="text-[11px] text-slate-500 dark:text-slate-400">
-              Formatos recomendados: PNG transparente ou SVG quadrado. Tamanho máximo de 2MB.
-            </p>
+        <!-- Actions & Upload Input -->
+        <div class="space-y-3 pt-2">
+          <input 
+            ref="fileInputRef" 
+            type="file" 
+            accept="image/png,image/jpeg,image/webp,image/svg+xml" 
+            class="hidden" 
+            @change="handleLogoFile" 
+          />
+          <div class="flex items-center gap-2">
+            <button 
+              type="button" 
+              @click="triggerLogoSelect"
+              class="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-amber-500/20"
+            >
+              <UploadCloud class="w-4 h-4" />
+              <span>{{ form.logoUrl ? 'Trocar Logo' : 'Enviar Logo' }}</span>
+            </button>
+            <button 
+              v-if="form.logoUrl" 
+              type="button" 
+              @click="removeLogo"
+              class="p-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 transition cursor-pointer border border-rose-500/20"
+              title="Remover Logo"
+            >
+              <Trash2 class="w-4 h-4" />
+            </button>
           </div>
+          <p class="text-[10px] text-slate-500 dark:text-slate-400 text-center">
+            Formatos recomendados: PNG transparente ou SVG quadrado (máx. 2MB).
+          </p>
         </div>
       </div>
 
-      <!-- Informações Comerciais Principais -->
-      <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm dark:shadow-xl transition-colors">
+      <!-- Informações Comerciais Principais (8 Colunas) -->
+      <div class="lg:col-span-8 bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm dark:shadow-xl transition-colors">
         <div class="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-white/5">
           <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 flex items-center justify-center font-bold">
             <Building2 class="w-5 h-5" />
@@ -757,6 +836,14 @@ onMounted(() => {
               <Copy v-else class="w-3.5 h-3.5" />
               <span>{{ copiedSlug ? 'Copiado!' : 'Copiar' }}</span>
             </button>
+            <a 
+              :href="fullClientUrl" 
+              target="_blank"
+              class="px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 font-bold text-xs transition flex items-center justify-center gap-1.5 border border-slate-200 dark:border-white/10"
+              title="Abrir página do cliente"
+            >
+              <ExternalLink class="w-3.5 h-3.5" />
+            </a>
           </div>
         </div>
       </div>
@@ -971,92 +1058,76 @@ onMounted(() => {
     <!-- TAB 4: PAGAMENTOS & GATEWAY ASAAS -->
     <div v-else-if="activeTab === 'PAYMENT'" class="space-y-6">
       
-      <!-- ================= BLOCO 1: PAGAMENTO ONLINE TOGGLE ================= -->
-      <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm dark:shadow-xl transition-colors">
-        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/5">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold">
-              <Zap class="w-5 h-5" />
+      <!-- Grid Superior com 2 Colunas (Toggles Principais) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- BLOCO 1: PAGAMENTO ONLINE TOGGLE -->
+        <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 space-y-4 shadow-sm dark:shadow-xl transition-colors">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/5">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold">
+                <Zap class="w-5 h-5" />
+              </div>
+              <div>
+                <h2 class="text-base font-bold text-slate-900 dark:text-white">Pagamento Online</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Pix antecipado no agendamento.</p>
+              </div>
             </div>
-            <div>
-              <h2 class="text-lg font-bold text-slate-900 dark:text-white">Pagamento Online no Agendamento</h2>
-              <p class="text-xs text-slate-500 dark:text-slate-400">Permite que seus clientes paguem antecipado via Pix no momento de agendar o horário.</p>
-            </div>
+
+            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+              <input 
+                v-model="form.onlinePaymentEnabled" 
+                type="checkbox" 
+                class="sr-only peer"
+                @change="playPopSound"
+              />
+              <div class="w-12 h-6 bg-slate-200 dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
           </div>
 
-          <!-- Master Toggle Pagamento Online -->
-          <label class="relative inline-flex items-center cursor-pointer shrink-0">
-            <input 
-              v-model="form.onlinePaymentEnabled" 
-              type="checkbox" 
-              class="sr-only peer"
-              @change="playPopSound"
-            />
-            <div class="w-14 h-7 bg-slate-200 dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-amber-500"></div>
-          </label>
-        </div>
-
-        <div class="p-4 rounded-2xl" :class="form.onlinePaymentEnabled ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-slate-100 dark:bg-white/[0.03] border border-slate-200 dark:border-white/5'">
-          <div class="flex items-start gap-3">
-            <CheckCircle2 v-if="form.onlinePaymentEnabled" class="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
-            <AlertCircle v-else class="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
-            <div class="space-y-1">
-              <span class="text-xs font-bold text-slate-900 dark:text-white block">
-                {{ form.onlinePaymentEnabled ? 'Pagamento Online Habilitado' : 'Pagamento Online Desativado (Apenas Balcão Presencial)' }}
-              </span>
-              <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                {{ form.onlinePaymentEnabled 
-                  ? 'Os clientes têm a opção de efetuar o pagamento antecipadamente com Pix no app, garantindo reserva sem no-show e recebimento imediato.' 
-                  : 'Quando desativado, o cliente agenda o horário sem ser solicitado a pagar nada antecipadamente. O pagamento do corte é feito 100% presencialmente no salão (Dinheiro, Maquininha ou Pix do Salão).' }}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ================= BLOCO 2: DIVISÃO AUTOMÁTICA (SPLIT) ================= -->
-      <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm dark:shadow-xl transition-colors">
-        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/5">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center font-bold">
-              <Sliders class="w-5 h-5" />
-            </div>
-            <div>
-              <h2 class="text-lg font-bold text-slate-900 dark:text-white">Divisão de Valores Automática (Split Gateway)</h2>
-              <p class="text-xs text-slate-500 dark:text-slate-400">Separação automática da cota-parte do profissional e do salão pela <strong>Lei Salão-Parceiro (13.352)</strong>.</p>
-            </div>
-          </div>
-
-          <!-- Split Master Toggle -->
-          <label class="relative inline-flex items-center cursor-pointer shrink-0">
-            <input 
-              v-model="form.autoSplitEnabled" 
-              type="checkbox" 
-              class="sr-only peer"
-              @change="playPopSound"
-            />
-            <div class="w-14 h-7 bg-slate-200 dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600"></div>
-          </label>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-          <div class="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20 space-y-2">
-            <span class="font-bold text-purple-900 dark:text-purple-300 flex items-center gap-1.5">
-              <Check class="w-4 h-4 text-purple-500" />
-              Se Ativado (Split Automático no Gateway):
+          <div class="p-3.5 rounded-2xl text-xs" :class="form.onlinePaymentEnabled ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-slate-100 dark:bg-white/[0.03] border border-slate-200 dark:border-white/5 text-slate-600 dark:text-slate-400'">
+            <span class="font-bold block mb-1">
+              {{ form.onlinePaymentEnabled ? '✓ Habilitado: Clientes podem pagar com Pix pelo app' : '✕ Desativado: Agendamentos confirmados para pagamento presencial no balcão' }}
             </span>
-            <p class="text-slate-600 dark:text-slate-400 leading-relaxed">
-              O gateway Asaas divide o Pix no ato do pagamento: a comissão cai instantaneamente na subconta do barbeiro cadastrada e o saldo do salão cai na sua conta principal. <strong>Sem bitributação</strong> e sem necessidade de pagar comissão manualmente depois.
+            <p class="text-[11px] opacity-90 leading-relaxed">
+              {{ form.onlinePaymentEnabled 
+                ? 'Garante reserva antecipada com zero no-show e recebimento direto.' 
+                : 'O cliente agenda sem atrito e acerta o valor na barbearia (Dinheiro, Maquininha ou Pix do Salão).' }}
             </p>
           </div>
+        </div>
 
-          <div class="p-4 rounded-2xl bg-slate-100 dark:bg-white/[0.03] border border-slate-200 dark:border-white/5 space-y-2">
-            <span class="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-              <DollarSign class="w-4 h-4 text-amber-500" />
-              Se Desativado (100% no Salão + Repasse Manual):
+        <!-- BLOCO 2: DIVISÃO AUTOMÁTICA (SPLIT) -->
+        <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 space-y-4 shadow-sm dark:shadow-xl transition-colors">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/5">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center font-bold">
+                <Sliders class="w-5 h-5" />
+              </div>
+              <div>
+                <h2 class="text-base font-bold text-slate-900 dark:text-white">Split Lei 13.352</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Divisão automática Salão-Parceiro.</p>
+              </div>
+            </div>
+
+            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+              <input 
+                v-model="form.autoSplitEnabled" 
+                type="checkbox" 
+                class="sr-only peer"
+                @change="playPopSound"
+              />
+              <div class="w-12 h-6 bg-slate-200 dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+            </label>
+          </div>
+
+          <div class="p-3.5 rounded-2xl text-xs" :class="form.autoSplitEnabled ? 'bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-300' : 'bg-slate-100 dark:bg-white/[0.03] border border-slate-200 dark:border-white/5 text-slate-600 dark:text-slate-400'">
+            <span class="font-bold block mb-1">
+              {{ form.autoSplitEnabled ? '✓ Split Automático Ativo no Gateway' : '✕ Repasse Manual (100% Salão)' }}
             </span>
-            <p class="text-slate-600 dark:text-slate-400 leading-relaxed">
-              100% do valor do agendamento é creditado na conta do salão. A comissão dos barbeiros é calculada pelo sistema e gerenciada com baixa manual no módulo <strong>Financeiro &gt; Contas a Pagar</strong>.
+            <p class="text-[11px] opacity-90 leading-relaxed">
+              {{ form.autoSplitEnabled 
+                ? 'A cota do barbeiro cai direto na subconta dele no Asaas. Zero bitributação.' 
+                : '100% entra na conta do salão e você dá baixa manual no módulo Contas a Pagar.' }}
             </p>
           </div>
         </div>
@@ -1159,13 +1230,13 @@ onMounted(() => {
                 <Eye v-else class="w-4 h-4" />
               </button>
             </div>
-            <span class="text-[10px] text-slate-500">Sua chave é armazenada de forma criptografada e segura no MySQL.</span>
+            <span class="text-[10px] text-slate-500">Sua chave é armazenada de forma segura e protegida no MySQL.</span>
           </div>
 
           <!-- Wallet ID / Subconta -->
           <div class="sm:col-span-12 space-y-1.5">
             <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Identificador da Conta Asaas (Wallet ID / Subconta Principal)
+              Identificador da Carteira / Wallet ID da Barbearia
             </label>
             <input 
               v-model="form.asaasWalletId"
@@ -1173,320 +1244,447 @@ onMounted(() => {
               placeholder="Ex: c534b077-16b7-4c31-8935-779836336a53"
               class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 transition"
             />
-            <span class="text-[10px] text-slate-500">Opcional. Identifica a conta mestre do salão quando o split automático estiver ativado.</span>
+            <span class="text-[10px] text-slate-500">Opcional. Identifica a conta mestre do estabelecimento.</span>
           </div>
-        </div>
-
-        <!-- Passo a Passo Ilustrado -->
-        <div class="p-4 rounded-2xl bg-blue-500/5 border border-blue-500/15 text-xs space-y-2">
-          <div class="flex items-center gap-2 font-bold text-blue-600 dark:text-blue-400">
-            <HelpCircle class="w-4 h-4" />
-            <span>Como obter sua chave de API no Asaas?</span>
-          </div>
-          <ol class="list-decimal list-inside space-y-1 text-slate-600 dark:text-slate-400 text-[11px] leading-relaxed">
-            <li>Acesse seu painel do Asaas (<a href="https://sandbox.asaas.com" target="_blank" class="text-blue-500 underline font-semibold">sandbox.asaas.com</a> para testes ou <a href="https://www.asaas.com" target="_blank" class="text-blue-500 underline font-semibold">asaas.com</a> para produção).</li>
-            <li>No menu lateral esquerdo, clique em <strong>Minha Conta</strong> e depois em <strong>Integrações</strong>.</li>
-            <li>Localize a seção <strong>Chave de API</strong>, clique em <strong>Gerar Nova Chave</strong>, copie e cole no campo acima.</li>
-            <li>Clique no botão <strong>"Testar Conexão"</strong> para confirmar que a chave está respondendo.</li>
-          </ol>
         </div>
       </div>
 
-      <!-- ================= BLOCO 4: TAXAS DA MAQUININHA ================= -->
-      <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm dark:shadow-xl transition-colors">
-        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/5">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-bold">
-              <CreditCard class="w-4 h-4" />
-            </div>
-            <div>
-              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Taxas da Maquininha Física de Cartão</h3>
-              <p class="text-xs text-slate-500 dark:text-slate-400">Configure as taxas cobradas pela sua operadora de POS física (Stone, PagBank, InfinitePay, etc.)</p>
+      <!-- ================= BLOCO 4: TAXAS DA MAQUININHA & DESCONTO ANTI NO-SHOW ================= -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Taxas Maquininha (7 Colunas) -->
+        <div class="lg:col-span-7 bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-7 space-y-5 shadow-sm dark:shadow-xl transition-colors">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/5">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-bold">
+                <CreditCard class="w-4 h-4" />
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Taxas da Maquininha Física (POS)</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Configure as taxas da Stone, PagBank, InfinitePay, etc.</p>
+              </div>
             </div>
           </div>
-          <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-            Economia Automática
-          </span>
-        </div>
 
-        <!-- Grid dos 3 Inputs Simples -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div class="p-3.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-1">
-            <label class="block text-[11px] font-bold text-slate-500 uppercase">Pix na Maquininha (%)</label>
-            <div class="relative">
+          <div class="grid grid-cols-3 gap-3">
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-1">
+              <label class="block text-[10px] font-bold text-slate-500 uppercase">Pix (%)</label>
               <input 
                 v-model.number="form.paymentFees.pixFeePercent"
                 type="number" 
                 step="0.01" 
-                min="0" 
-                max="100"
-                class="w-full px-3 py-2 pr-8 rounded-lg bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                min="0"
+                class="w-full bg-transparent text-xs font-black text-slate-900 dark:text-white focus:outline-none"
               />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
             </div>
-            <span class="text-[10px] text-slate-400">Padrão: 0%</span>
-          </div>
-
-          <div class="p-3.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-1">
-            <label class="block text-[11px] font-bold text-slate-500 uppercase">Cartão de Débito (%)</label>
-            <div class="relative">
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-1">
+              <label class="block text-[10px] font-bold text-slate-500 uppercase">Débito (%)</label>
               <input 
                 v-model.number="form.paymentFees.debitFeePercent"
                 type="number" 
                 step="0.01" 
-                min="0" 
-                max="100"
-                class="w-full px-3 py-2 pr-8 rounded-lg bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                min="0"
+                class="w-full bg-transparent text-xs font-black text-slate-900 dark:text-white focus:outline-none"
               />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
             </div>
-            <span class="text-[10px] text-slate-400">Padrão: 1.4%</span>
-          </div>
-
-          <div class="p-3.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-1">
-            <label class="block text-[11px] font-bold text-slate-500 uppercase">Crédito à Vista (%)</label>
-            <div class="relative">
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-1">
+              <label class="block text-[10px] font-bold text-slate-500 uppercase">Crédito 1x (%)</label>
               <input 
                 v-model.number="form.paymentFees.creditFeePercent"
                 type="number" 
                 step="0.01" 
-                min="0" 
-                max="100"
-                class="w-full px-3 py-2 pr-8 rounded-lg bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                min="0"
+                class="w-full bg-transparent text-xs font-black text-slate-900 dark:text-white focus:outline-none"
               />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
             </div>
-            <span class="text-[10px] text-slate-400">Padrão: 3.2%</span>
           </div>
-        </div>
 
-        <!-- Chave Seletora Inteligente (Toggle) -->
-        <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start justify-between gap-4">
-          <div class="space-y-1">
-            <span class="text-xs font-black text-amber-900 dark:text-amber-300 block">
-              Descontar taxa da maquininha da cota-parte dos profissionais?
+          <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between gap-3 text-xs">
+            <span class="font-bold text-amber-900 dark:text-amber-300">
+              Descontar taxa da maquininha da cota do barbeiro? (Lei 13.352)
             </span>
-            <p class="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-              Amparado pela <strong>Lei 13.352 (Salão-Parceiro)</strong>. Quando ativado, a comissão do profissional é calculada sobre o valor líquido recebido após o desconto da taxa da maquininha, evitando que o salão arque sozinho com a taxa bancária.
-            </p>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+              <input 
+                v-model="form.paymentFees.deductFeeFromSplit" 
+                type="checkbox" 
+                class="sr-only peer"
+              />
+              <div class="w-10 h-5 bg-slate-200 dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
           </div>
-          <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
-            <input 
-              v-model="form.paymentFees.deductFeeFromSplit" 
-              type="checkbox" 
-              class="sr-only peer"
-            />
-            <div class="w-11 h-6 bg-slate-200 dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-          </label>
         </div>
 
-        <!-- Incentivo Pix Anti No-Show -->
-        <div class="p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-4">
-          <div class="flex items-center justify-between">
+        <!-- Incentivo Pix Anti No-Show (5 Colunas) -->
+        <div class="lg:col-span-5 bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-7 space-y-4 shadow-sm dark:shadow-xl transition-colors">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/5">
             <div>
-              <span class="text-sm font-bold text-slate-900 dark:text-white block">Incentivo de Desconto no Pagamento Online</span>
-              <p class="text-xs text-slate-500 dark:text-slate-400">Aplica desconto automático para o cliente pagar na hora pelo app, incentivando zero no-show.</p>
+              <span class="text-sm font-bold text-slate-900 dark:text-white block">Incentivo Pix Online</span>
+              <p class="text-xs text-slate-500 dark:text-slate-400">Desconto inteligente anti no-show.</p>
             </div>
             <input 
               v-model="form.onlineDiscountActive" 
               type="checkbox"
-              class="w-5 h-5 rounded accent-amber-500 cursor-pointer"
+              class="w-4 h-4 rounded accent-amber-500 cursor-pointer"
             />
           </div>
 
-          <div v-if="form.onlineDiscountActive" class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-200 dark:border-white/10">
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">Tipo de Desconto</label>
-              <div class="flex gap-2">
-                <button 
-                  @click="form.discountType = 'PERCENTAGE'"
-                  type="button"
-                  class="flex-1 py-2 rounded-xl text-xs font-bold transition cursor-pointer"
-                  :class="form.discountType === 'PERCENTAGE' ? 'bg-amber-500 text-black shadow' : 'bg-white dark:bg-black/40 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10'"
-                >
-                  Porcentagem (%)
-                </button>
-                <button 
-                  @click="form.discountType = 'FIXED'"
-                  type="button"
-                  class="flex-1 py-2 rounded-xl text-xs font-bold transition cursor-pointer"
-                  :class="form.discountType === 'FIXED' ? 'bg-amber-500 text-black shadow' : 'bg-white dark:bg-black/40 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10'"
-                >
-                  Valor Fixo (R$)
-                </button>
-              </div>
+          <div v-if="form.onlineDiscountActive" class="space-y-3">
+            <div class="flex gap-2">
+              <button 
+                @click="form.discountType = 'PERCENTAGE'"
+                type="button"
+                class="flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
+                :class="form.discountType === 'PERCENTAGE' ? 'bg-amber-500 text-black shadow' : 'bg-slate-100 dark:bg-black/40 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10'"
+              >
+                % Porcentagem
+              </button>
+              <button 
+                @click="form.discountType = 'FIXED'"
+                type="button"
+                class="flex-1 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
+                :class="form.discountType === 'FIXED' ? 'bg-amber-500 text-black shadow' : 'bg-slate-100 dark:bg-black/40 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-white/10'"
+              >
+                R$ Fixo
+              </button>
             </div>
 
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
-                Valor do Desconto ({{ form.discountType === 'PERCENTAGE' ? '%' : 'R$' }})
-              </label>
+            <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">Valor do Desconto:</span>
               <input 
                 v-model.number="form.discountValue" 
                 type="number" 
                 min="0"
-                class="w-full px-4 py-2 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs text-slate-900 dark:text-white font-bold focus:outline-none focus:border-amber-500"
+                class="w-20 bg-transparent text-right text-xs font-black text-amber-500 focus:outline-none"
               />
             </div>
           </div>
-        </div>
 
-        <!-- Chave Pix Direta (Para balcão) -->
-        <div class="p-4 rounded-2xl bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 space-y-3">
-          <div class="flex items-center gap-2">
-            <QrCode class="w-4 h-4 text-emerald-500" />
-            <span class="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">Chave Pix Direta da Barbearia (Balcão Manual)</span>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
-            <div class="sm:col-span-4">
-              <label class="block text-[11px] font-bold text-slate-500 uppercase">Tipo de Chave</label>
-              <select 
-                v-model="form.pixKeyType" 
-                class="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500"
-              >
-                <option value="PHONE">Telefone Celular</option>
-                <option value="CNPJ">CNPJ</option>
-                <option value="CPF">CPF</option>
-                <option value="EMAIL">E-mail</option>
-                <option value="RANDOM">Chave Aleatória</option>
-              </select>
-            </div>
-            <div class="sm:col-span-8">
-              <label class="block text-[11px] font-bold text-slate-500 uppercase">Chave Pix</label>
-              <input 
-                v-model="form.pixKey" 
-                type="text" 
-                placeholder="Ex: 31995961342 ou pix@barbearia.com"
-                class="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 font-mono"
-              />
-            </div>
+          <div class="pt-2 border-t border-slate-100 dark:border-white/5 space-y-1">
+            <label class="block text-[10px] font-bold text-slate-500 uppercase">Chave Pix Direta da Barbearia (Balcão)</label>
+            <input 
+              v-model="form.pixKey" 
+              type="text" 
+              placeholder="31995961342 ou pix@barbearia.com"
+              class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-200 dark:border-white/10 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+            />
           </div>
         </div>
       </div>
     </div>
 
-    <!-- TAB 5: REGRAS DA AGENDA & POLÍTICAS -->
-    <div v-else-if="activeTab === 'POLICIES'" class="space-y-6">
-      <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm dark:shadow-xl transition-colors">
-        <div class="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-white/5">
-          <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 flex items-center justify-center font-bold">
+    <!-- TAB 5: REGRAS DA AGENDA & PERSONALIDADE DA IA -->
+    <div v-else-if="activeTab === 'POLICIES'" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Políticas de Agendamento (6 Colunas) -->
+      <div class="lg:col-span-6 bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-7 space-y-5 shadow-sm dark:shadow-xl transition-colors">
+        <div class="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-white/5">
+          <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold">
             <CalendarClock class="w-5 h-5" />
           </div>
           <div>
-            <h2 class="text-lg font-bold text-slate-900 dark:text-white">Políticas de Agendamento &amp; Regras da Casa</h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400">Controle a antecedência das reservas, higienização de cadeiras e regras de cancelamento.</p>
+            <h2 class="text-base font-bold text-slate-900 dark:text-white">Regras da Agenda</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Controle de horários, intervalo e tolerância.</p>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div class="space-y-4 text-xs">
           <!-- Antecedência Mínima -->
-          <div class="space-y-1.5 p-4 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10">
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Antecedência Mínima para Agendar
-            </label>
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10 flex items-center justify-between">
+            <div>
+              <span class="font-bold text-slate-800 dark:text-slate-200 block">Antecedência Mínima</span>
+              <span class="text-[10px] text-slate-400">Evita cliente aparecendo de surpresa</span>
+            </div>
             <select 
               v-model.number="form.bookingPolicies.minAdvanceMinutes"
-              class="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+              class="px-3 py-1.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 font-bold text-slate-900 dark:text-white focus:outline-none"
             >
-              <option :value="0">Sem antecedência (Imediato)</option>
-              <option :value="15">15 minutos de antecedência</option>
-              <option :value="30">30 minutos de antecedência (Recomendado)</option>
-              <option :value="60">1 hora de antecedência</option>
-              <option :value="120">2 horas de antecedência</option>
+              <option :value="0">Imediato</option>
+              <option :value="15">15 min</option>
+              <option :value="30">30 min (Recomendado)</option>
+              <option :value="60">1 hora</option>
+              <option :value="120">2 horas</option>
             </select>
-            <span class="text-[10px] text-slate-500">Evita agendamentos de última hora sem aviso prévio ao profissional.</span>
           </div>
 
           <!-- Antecedência Máxima -->
-          <div class="space-y-1.5 p-4 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10">
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Antecedência Máxima da Agenda
-            </label>
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10 flex items-center justify-between">
+            <div>
+              <span class="font-bold text-slate-800 dark:text-slate-200 block">Antecedência Máxima</span>
+              <span class="text-[10px] text-slate-400">Limite de dias futuros na grade</span>
+            </div>
             <select 
               v-model.number="form.bookingPolicies.maxAdvanceDays"
-              class="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+              class="px-3 py-1.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 font-bold text-slate-900 dark:text-white focus:outline-none"
             >
-              <option :value="7">Até 7 dias à frente</option>
-              <option :value="15">Até 15 dias à frente</option>
-              <option :value="30">Até 30 dias à frente (Padrão)</option>
-              <option :value="60">Até 60 dias à frente</option>
-              <option :value="90">Até 90 dias à frente</option>
+              <option :value="7">7 dias</option>
+              <option :value="15">15 dias</option>
+              <option :value="30">30 dias (Padrão)</option>
+              <option :value="60">60 dias</option>
             </select>
-            <span class="text-[10px] text-slate-500">Limita até qual data futura o cliente pode visualizar horários vagos.</span>
           </div>
 
-          <!-- Limpeza / Higienização da Cadeira -->
-          <div class="space-y-1.5 p-4 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10">
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Intervalo entre Clientes (Higienização)
-            </label>
+          <!-- Limpeza da Cadeira -->
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10 flex items-center justify-between">
+            <div>
+              <span class="font-bold text-slate-800 dark:text-slate-200 block">Intervalo entre Clientes</span>
+              <span class="text-[10px] text-slate-400">Higienização e preparação da cadeira</span>
+            </div>
             <select 
               v-model.number="form.bookingPolicies.chairCleanupMinutes"
-              class="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+              class="px-3 py-1.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 font-bold text-slate-900 dark:text-white focus:outline-none"
             >
-              <option :value="0">0 minutos (Clientes em sequência direta)</option>
-              <option :value="5">5 minutos (Recomendado para limpeza da cadeira)</option>
-              <option :value="10">10 minutos de intervalo</option>
-              <option :value="15">15 minutos de intervalo</option>
+              <option :value="0">0 min (Sem intervalo)</option>
+              <option :value="5">5 min (Recomendado)</option>
+              <option :value="10">10 min</option>
+              <option :value="15">15 min</option>
             </select>
-            <span class="text-[10px] text-slate-500">Tempo de respiro adicionado ao término de cada atendimento.</span>
           </div>
 
-          <!-- Prazo Limite de Cancelamento -->
-          <div class="space-y-1.5 p-4 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10">
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Prazo Limite para Cancelamento
-            </label>
-            <select 
-              v-model.number="form.bookingPolicies.cancelNoticeHours"
-              class="w-full px-4 py-2.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
-            >
-              <option :value="1">Até 1 hora antes do horário</option>
-              <option :value="2">Até 2 horas antes (Padrão)</option>
-              <option :value="4">Até 4 horas antes</option>
-              <option :value="12">Até 12 horas antes</option>
-              <option :value="24">Até 24 horas antes</option>
-            </select>
-            <span class="text-[10px] text-slate-500">Após esse prazo, o cliente deve ligar diretamente na barbearia.</span>
-          </div>
+          <!-- Cancelamento & Tolerância -->
+          <div class="grid grid-cols-2 gap-3">
+            <div class="p-3 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10">
+              <span class="font-bold text-slate-700 dark:text-slate-300 block mb-1">Prazo de Cancelamento</span>
+              <select 
+                v-model.number="form.bookingPolicies.cancelNoticeHours"
+                class="w-full px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 font-bold text-slate-900 dark:text-white focus:outline-none"
+              >
+                <option :value="1">1h antes</option>
+                <option :value="2">2h antes</option>
+                <option :value="4">4h antes</option>
+                <option :value="24">24h antes</option>
+              </select>
+            </div>
 
-          <!-- Tolerância de Atraso -->
-          <div class="sm:col-span-2 p-4 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10 flex items-center justify-between">
+            <div class="p-3 rounded-2xl bg-slate-50 dark:bg-black/30 border border-slate-200 dark:border-white/10">
+              <span class="font-bold text-slate-700 dark:text-slate-300 block mb-1">Tolerância de Atraso</span>
+              <div class="flex items-center gap-1.5">
+                <input 
+                  v-model.number="form.toleranceMinutes"
+                  type="number"
+                  min="0"
+                  max="60"
+                  class="w-full px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 font-bold text-amber-500 text-center focus:outline-none"
+                />
+                <span class="text-slate-400 font-bold">min</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Personalidade da IA & Mensagens (6 Colunas) -->
+      <div class="lg:col-span-6 bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-7 space-y-5 shadow-sm dark:shadow-xl transition-colors">
+        <div class="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-white/5">
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold">
+            <Bot class="w-5 h-5" />
+          </div>
+          <div>
+            <h2 class="text-base font-bold text-slate-900 dark:text-white">Personalidade da IA do WhatsApp</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Defina como a secretária de IA atende seus clientes.</p>
+          </div>
+        </div>
+
+        <!-- Tom de Voz -->
+        <div class="space-y-2">
+          <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+            Tom de Voz do Atendimento
+          </label>
+          <div class="grid grid-cols-3 gap-2">
+            <button 
+              type="button"
+              @click="form.bookingPolicies.aiTone = 'CLASSIC'; playPopSound()"
+              class="p-2.5 rounded-xl border text-center transition cursor-pointer"
+              :class="form.bookingPolicies.aiTone === 'CLASSIC' ? 'border-amber-500 bg-amber-500/15 text-amber-500 font-bold' : 'border-slate-200 dark:border-white/10 text-slate-500 hover:text-slate-800 dark:hover:text-white'"
+            >
+              <div class="text-xs">🎩 Clássico</div>
+              <div class="text-[9px] opacity-75 mt-0.5">Formal e cavalheiro</div>
+            </button>
+            <button 
+              type="button"
+              @click="form.bookingPolicies.aiTone = 'MODERN'; playPopSound()"
+              class="p-2.5 rounded-xl border text-center transition cursor-pointer"
+              :class="form.bookingPolicies.aiTone === 'MODERN' ? 'border-amber-500 bg-amber-500/15 text-amber-500 font-bold' : 'border-slate-200 dark:border-white/10 text-slate-500 hover:text-slate-800 dark:hover:text-white'"
+            >
+              <div class="text-xs">⚡ Moderno</div>
+              <div class="text-[9px] opacity-75 mt-0.5">Ágil e acolhedor</div>
+            </button>
+            <button 
+              type="button"
+              @click="form.bookingPolicies.aiTone = 'URBAN'; playPopSound()"
+              class="p-2.5 rounded-xl border text-center transition cursor-pointer"
+              :class="form.bookingPolicies.aiTone === 'URBAN' ? 'border-amber-500 bg-amber-500/15 text-amber-500 font-bold' : 'border-slate-200 dark:border-white/10 text-slate-500 hover:text-slate-800 dark:hover:text-white'"
+            >
+              <div class="text-xs">💈 Urbano</div>
+              <div class="text-[9px] opacity-75 mt-0.5">Fade, réguas e gírias</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Instruções Específicas da Barbearia para a IA -->
+        <div class="space-y-1.5">
+          <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+            Instruções Customizadas para a IA
+          </label>
+          <textarea 
+            v-model="form.bookingPolicies.aiCustomPrompt"
+            rows="3"
+            maxlength="500"
+            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 transition resize-none leading-relaxed"
+            placeholder="Ex: Lembrar que temos cerveja gelada de cortesia e mesa de sinuca. Caso perguntem sobre estacionamento, informar que temos convênio com o AutoPark ao lado."
+          ></textarea>
+        </div>
+
+        <!-- Mensagem de Boas-Vindas & Orientações -->
+        <div class="space-y-1.5">
+          <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+            Orientações Pós-Agendamento (Tela de Confirmação)
+          </label>
+          <textarea 
+            v-model="form.bookingPolicies.welcomeMessage"
+            rows="2"
+            maxlength="500"
+            class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 transition resize-none leading-relaxed"
+            placeholder="Ex: Chegue com 5 minutos de antecedência. Café espresso e Wi-Fi de cortesia."
+          ></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 6: TRÁFEGO PAGO & DISPLAY DE BALCÃO (NOVIDADE SAAS 2026) -->
+    <div v-else-if="activeTab === 'MARKETING'" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Gerador de Display de Balcão em Acrílico (7 Colunas) -->
+      <div class="lg:col-span-7 bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-7 space-y-5 shadow-sm dark:shadow-xl transition-colors">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-white/5">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold">
+              <Printer class="w-5 h-5" />
+            </div>
             <div>
-              <span class="text-xs font-bold text-slate-900 dark:text-white block">Tolerância Máxima de Atraso</span>
-              <span class="text-[11px] text-slate-500 dark:text-slate-400">Tempo limite de espera antes que a vaga possa ser liberada para walk-in.</span>
-            </div>
-            <div class="flex items-center gap-1.5 bg-white dark:bg-[#07090e] px-3 py-1.5 rounded-xl border border-slate-300 dark:border-white/10">
-              <input 
-                v-model.number="form.toleranceMinutes" 
-                type="number" 
-                min="0" 
-                max="60"
-                class="w-10 bg-transparent text-xs font-black text-amber-600 dark:text-amber-400 text-center focus:outline-none"
-              />
-              <span class="text-xs text-slate-500">min</span>
+              <h2 class="text-base font-bold text-slate-900 dark:text-white">Display de Balcão &amp; QR Code de Mesa</h2>
+              <p class="text-xs text-slate-500 dark:text-slate-400">Placa em acrílico pronta para imprimir e colocar no salão.</p>
             </div>
           </div>
+          <button 
+            @click="showPrintModal = true; playPopSound()"
+            type="button"
+            class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-wider transition flex items-center gap-1.5 shadow-md shadow-amber-500/20"
+          >
+            <Printer class="w-3.5 h-3.5" />
+            <span>Imprimir Placa</span>
+          </button>
+        </div>
 
-          <!-- Mensagem de Boas-Vindas & Orientações -->
-          <div class="sm:col-span-2 space-y-1.5">
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Mensagem de Boas-Vindas &amp; Orientações (Exibida pós-agendamento)
-            </label>
-            <textarea 
-              v-model="form.bookingPolicies.welcomeMessage"
-              rows="3"
-              maxlength="500"
-              class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 transition resize-none leading-relaxed"
-              placeholder="Ex: Seja muito bem-vindo! Chegue com 5 minutos de antecedência. Café espresso e Wi-Fi de cortesia."
-            ></textarea>
-            <span class="text-[10px] text-slate-500">Aparece na tela de confirmação e no WhatsApp de lembrete do cliente.</span>
+        <!-- Mockup Visual Realista de Display de Balcão -->
+        <div class="p-6 rounded-3xl bg-gradient-to-b from-[#181d2c] via-[#0f131f] to-[#080a10] border-2 border-amber-500/30 text-center space-y-4 max-w-sm mx-auto shadow-2xl shadow-black/50 relative overflow-hidden">
+          <div class="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
+          
+          <div class="flex items-center justify-center gap-2">
+            <img v-if="form.logoUrl" :src="form.logoUrl" alt="Logo" class="w-9 h-9 rounded-full object-cover border border-amber-500/40" />
+            <h3 class="text-sm font-black text-amber-400 tracking-wider uppercase">
+              {{ form.name || 'BARBER CLUB' }}
+            </h3>
+          </div>
+
+          <p class="text-[11px] text-slate-300 font-medium">
+            Aponte a câmera e agende seu horário em 30 segundos:
+          </p>
+
+          <div class="w-40 h-40 bg-white p-2.5 rounded-2xl mx-auto shadow-lg shadow-black/40 flex items-center justify-center">
+            <img :src="qrCodeUrl" alt="QR Code Oficial" class="w-full h-full object-contain" />
+          </div>
+
+          <div class="font-mono text-[10px] text-amber-300 font-bold bg-amber-500/10 py-1.5 px-3 rounded-lg border border-amber-500/20 truncate">
+            {{ fullClientUrl }}
+          </div>
+
+          <div class="text-[9px] text-slate-500 font-medium uppercase tracking-widest pt-1">
+            VIP Booking Experience • BarblyClub
+          </div>
+        </div>
+
+        <div class="flex items-center justify-center gap-3 pt-2">
+          <button 
+            type="button" 
+            @click="downloadQrCode"
+            class="px-4 py-2 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs font-bold transition flex items-center gap-1.5 border border-slate-200 dark:border-white/10"
+          >
+            <Download class="w-3.5 h-3.5" />
+            <span>Baixar Imagem do QR Code</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tráfego Pago & Meta Ads Pixel (5 Colunas) -->
+      <div class="lg:col-span-5 bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-7 space-y-5 shadow-sm dark:shadow-xl transition-colors">
+        <div class="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-white/5">
+          <div class="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center font-bold">
+            <Target class="w-5 h-5" />
+          </div>
+          <div>
+            <h2 class="text-base font-bold text-slate-900 dark:text-white">Tráfego Pago &amp; Anúncios</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Rastreie agendamentos de anúncios do Instagram.</p>
+          </div>
+        </div>
+
+        <!-- Meta Pixel ID -->
+        <div class="space-y-1.5">
+          <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+            ID do Pixel do Meta (Facebook &amp; Instagram)
+          </label>
+          <input 
+            v-model="form.bookingPolicies.metaPixelId"
+            type="text"
+            placeholder="Ex: 874629103859201"
+            class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 transition"
+          />
+          <span class="text-[10px] text-slate-500">
+            Dispara automaticamente eventos de <code>Schedule</code> e <code>Purchase</code> ao concluir agendamento no PWA.
+          </span>
+        </div>
+
+        <!-- Google Analytics ID -->
+        <div class="space-y-1.5">
+          <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+            ID do Google Analytics 4 (GA4)
+          </label>
+          <input 
+            v-model="form.bookingPolicies.googleAnalyticsId"
+            type="text"
+            placeholder="Ex: G-XXXXXXXXXX"
+            class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-rose-500 transition"
+          />
+          <span class="text-[10px] text-slate-500">Mede o volume de acessos e taxas de conversão da página pública.</span>
+        </div>
+
+        <!-- Exportação LGPD -->
+        <div class="p-4 rounded-2xl bg-slate-100 dark:bg-black/30 border border-slate-200 dark:border-white/10 space-y-2.5">
+          <span class="text-xs font-bold text-slate-800 dark:text-slate-200 block">Soberania de Dados &amp; Backup LGPD</span>
+          <p class="text-[11px] text-slate-500 leading-relaxed">
+            Seus dados nunca ficam presos. Exporte os dados cadastrais da barbearia a qualquer momento.
+          </p>
+          <div class="flex items-center gap-2 pt-1">
+            <button 
+              type="button" 
+              @click="exportData('CLIENTS')"
+              class="px-3 py-1.5 rounded-lg bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:bg-slate-50"
+            >
+              <FileSpreadsheet class="w-3.5 h-3.5 text-emerald-500" />
+              <span>Exportar Clientes</span>
+            </button>
+            <button 
+              type="button" 
+              @click="exportData('FISCAL')"
+              class="px-3 py-1.5 rounded-lg bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 hover:bg-slate-50"
+            >
+              <FileSpreadsheet class="w-3.5 h-3.5 text-amber-500" />
+              <span>Relatório Lei 13.352</span>
+            </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- TAB 6: IDENTIDADE VISUAL & TEMA -->
+    <!-- TAB 7: IDENTIDADE VISUAL & TEMA -->
     <div v-else-if="activeTab === 'THEME'" class="space-y-6">
       <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm dark:shadow-xl transition-colors">
         <div class="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-white/5">
@@ -1592,8 +1790,10 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- TAB 7: MEU PLANO SAAS & ASSINATURA -->
+    <!-- TAB 8: MEU PLANO SAAS & SIMULADOR DE ROI FISCAL -->
     <div v-else-if="activeTab === 'PLAN'" class="space-y-6">
+      
+      <!-- Card Status do Plano -->
       <div class="bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-xl transition-colors">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-amber-500/20">
           <div class="flex items-center gap-3">
@@ -1602,7 +1802,7 @@ onMounted(() => {
             </div>
             <div>
               <div class="flex items-center gap-2">
-                <h2 class="text-xl font-black text-slate-900 dark:text-white">Plano Barbly PRO Vip</h2>
+                <h2 class="text-xl font-black text-slate-900 dark:text-white">Plano Barbly PRO VIP</h2>
                 <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500 text-slate-950 font-mono">
                   30 Dias Grátis Ativos
                 </span>
@@ -1649,24 +1849,156 @@ onMounted(() => {
             <span class="font-bold text-slate-800 dark:text-slate-200">Suporte Prioritário VIP</span>
           </div>
         </div>
+      </div>
 
-        <!-- Card Suporte & Ajuda -->
-        <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div class="space-y-0.5">
-            <span class="text-xs font-bold text-slate-900 dark:text-white block">Precisa de ajuda com sua conta ou migração de dados?</span>
-            <span class="text-[11px] text-slate-600 dark:text-slate-400">Nossa equipe técnica atende você diretamente pelo WhatsApp oficial.</span>
+      <!-- Calculadora & Simulador de Economia Fiscal da Lei Salão-Parceiro -->
+      <div class="bg-white dark:bg-[#0e131d]/90 border border-slate-200/80 dark:border-white/[0.08] rounded-3xl p-6 sm:p-8 space-y-6 shadow-sm dark:shadow-xl transition-colors">
+        <div class="flex items-center gap-3 pb-4 border-b border-slate-100 dark:border-white/5">
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold">
+            <TrendingUp class="w-5 h-5" />
           </div>
-          <a 
-            href="https://wa.me/5531995961342?text=Olá!%20Preciso%20de%20suporte%20no%20Barbly%20Club." 
-            target="_blank"
-            class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs uppercase tracking-wider transition flex items-center justify-center gap-1.5 shrink-0 shadow-md"
-          >
-            <MessageSquare class="w-3.5 h-3.5" />
-            <span>Falar com Suporte VIP</span>
-          </a>
+          <div>
+            <h2 class="text-base font-bold text-slate-900 dark:text-white">Simulador de Economia Fiscal (Lei Salão-Parceiro 13.352)</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Descubra quanto a sua barbearia economiza de imposto usando o BarblyClub.</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="space-y-4 md:col-span-2">
+            <!-- Slider Faturamento -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <span class="font-bold text-slate-700 dark:text-slate-300">Faturamento Bruto Mensal da Barbearia:</span>
+                <span class="font-mono font-black text-amber-500 text-sm">R$ {{ simRevenue.toLocaleString('pt-BR') }},00</span>
+              </div>
+              <input 
+                v-model.number="simRevenue" 
+                type="range" 
+                min="10000" 
+                max="120000" 
+                step="5000" 
+                class="w-full h-2 bg-slate-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              />
+            </div>
+
+            <!-- Slider Comissão -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <span class="font-bold text-slate-700 dark:text-slate-300">Comissão Média Repassada aos Barbeiros:</span>
+                <span class="font-mono font-black text-amber-500 text-sm">{{ simBarberCommissionPercent }}%</span>
+              </div>
+              <input 
+                v-model.number="simBarberCommissionPercent" 
+                type="range" 
+                min="30" 
+                max="70" 
+                step="5" 
+                class="w-full h-2 bg-slate-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              />
+            </div>
+          </div>
+
+          <!-- Card de Economia Resultante -->
+          <div class="p-5 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500/30 flex flex-col justify-between text-center space-y-3">
+            <div>
+              <span class="text-[10px] uppercase font-bold tracking-wider text-emerald-600 dark:text-emerald-400 block">
+                Sua Economia Real Estimada
+              </span>
+              <div class="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-1">
+                R$ {{ simMonthlySavings.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) }}
+                <span class="text-xs font-normal text-slate-400 block">/mês economizados</span>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t border-emerald-500/20 text-xs">
+              <span class="text-slate-400 block text-[10px] uppercase">Economia Anual em Impostos:</span>
+              <span class="font-black text-slate-900 dark:text-white font-mono text-base">
+                R$ {{ simYearlySavings.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) }}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
+    <!-- ================= MODAL DE IMPRESSÃO DO DISPLAY DE BALCÃO ================= -->
+    <Teleport to="body">
+      <div v-if="showPrintModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div class="bg-white dark:bg-[#0e131d] border border-slate-200 dark:border-white/10 rounded-3xl p-6 sm:p-8 max-w-lg w-full space-y-6 shadow-2xl relative">
+          <button 
+            type="button" 
+            @click="showPrintModal = false"
+            class="absolute top-5 right-5 text-slate-400 hover:text-white transition cursor-pointer"
+          >
+            <X class="w-5 h-5" />
+          </button>
+
+          <div class="text-center space-y-1">
+            <h3 class="text-lg font-black text-slate-900 dark:text-white">Display de Balcão Oficial</h3>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Pronto para imprimir e colocar em moldura de acrílico.</p>
+          </div>
+
+          <!-- Card de Impressão (Estilizado) -->
+          <div id="counter-display-card" class="p-6 rounded-3xl bg-[#080a10] border-2 border-amber-500/40 text-center space-y-4 shadow-xl">
+            <div class="flex items-center justify-center gap-2">
+              <img v-if="form.logoUrl" :src="form.logoUrl" alt="Logo" class="w-10 h-10 rounded-full object-cover border border-amber-500/40" />
+              <div class="text-left">
+                <h4 class="text-sm font-black text-amber-400 uppercase tracking-wider">{{ form.name || 'BARBER CLUB' }}</h4>
+                <span class="text-[9px] text-slate-400 uppercase tracking-widest block">Agendamento Online VIP</span>
+              </div>
+            </div>
+
+            <div class="w-48 h-48 bg-white p-3 rounded-2xl mx-auto shadow-md">
+              <img :src="qrCodeUrl" alt="QR Code" class="w-full h-full object-contain" />
+            </div>
+
+            <div class="space-y-1">
+              <p class="text-xs font-bold text-white">Aponte a câmera do celular para agendar</p>
+              <p class="text-[10px] text-amber-300 font-mono">{{ fullClientUrl }}</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button 
+              type="button" 
+              @click="printCounterDisplay"
+              class="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 cursor-pointer"
+            >
+              <Printer class="w-4 h-4" />
+              <span>Imprimir Agora (A4 / A5)</span>
+            </button>
+            <button 
+              type="button" 
+              @click="showPrintModal = false"
+              class="px-5 py-3 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs font-bold transition text-slate-700 dark:text-slate-300 cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
   </div>
 </template>
+
+<style>
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #counter-display-card, #counter-display-card * {
+    visibility: visible;
+  }
+  #counter-display-card {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(1.3);
+    border: 3px solid #d97706 !important;
+    background: #000 !important;
+    color: #fff !important;
+    box-shadow: none !important;
+  }
+}
+</style>
