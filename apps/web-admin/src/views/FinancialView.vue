@@ -229,15 +229,29 @@ const payoutForm = reactive({
 
 
 
-// 4. Modal PDV / Venda Rápida de Produto
-const isSellModalOpen = ref(false);
-const sellForm = reactive({
-  productId: '',
-  quantity: 1,
-  barberId: '',
-  customerId: '',
-  paymentMethod: 'PIX'
-});
+// Modal de Detalhes do Lançamento
+const isDetailModalOpen = ref(false);
+const selectedEntryForDetail = ref<FinancialEntry | null>(null);
+
+function openEntryDetail(entry: FinancialEntry) {
+  playPopSound();
+  selectedEntryForDetail.value = entry;
+  isDetailModalOpen.value = true;
+}
+
+function printEntryDetail() {
+  playPopSound();
+  window.print();
+}
+
+async function copyEntryId(id: string) {
+  try {
+    await navigator.clipboard.writeText(id);
+    toast.success('ID do lançamento copiado!');
+  } catch {
+    toast.error('Não foi possível copiar o ID.');
+  }
+}
 
 // 5. Modal de Confirmação de Exclusão
 const isDeleteModalOpen = ref(false);
@@ -337,6 +351,18 @@ async function loadAllData() {
 }
 
 // ================= FORMATAÇÃO =================
+
+function getPaymentMethodLabel(method?: string) {
+  if (!method) return 'Pix';
+  const m = method.toUpperCase();
+  if (m === 'PIX') return 'Pix Instantâneo';
+  if (m === 'CREDIT_CARD') return 'Cartão de Crédito';
+  if (m === 'DEBIT_CARD') return 'Cartão de Débito';
+  if (m === 'CASH') return 'Dinheiro em Espécie';
+  if (m === 'TRANSFER') return 'Transferência Bancária';
+  return method;
+}
+
 function formatMoney(value: number | string | undefined): string {
   const num = Number(value) || 0;
   return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -427,22 +453,7 @@ const filteredSplits = computed(() => {
   );
 });
 
-// Produto selecionado no modal PDV
-const selectedProductForSale = computed(() => {
-  return products.value.find((p) => p.id === sellForm.productId) || null;
-});
 
-// Cálculo em tempo real da venda no PDV
-const saleTotalAmount = computed(() => {
-  if (!selectedProductForSale.value) return 0;
-  return Number(selectedProductForSale.value.salePrice) * (Number(sellForm.quantity) || 1);
-});
-
-const saleCommissionAmount = computed(() => {
-  if (!selectedProductForSale.value || !sellForm.barberId) return 0;
-  const rate = Number(selectedProductForSale.value.commissionPercentage) || 0;
-  return (saleTotalAmount.value * rate) / 100;
-});
 
 // Categorias distintas de lançamentos para filtro
 const distinctEntryCategories = computed(() => {
@@ -545,48 +556,7 @@ async function handleConfirmPayout() {
   }
 }
 
-// ================= PDV / VENDA RÁPIDA DE BALCÃO =================
-function openSellModal(product?: Product) {
-  playPopSound();
-  sellForm.productId = product ? product.id : (products.value[0]?.id || '');
-  sellForm.quantity = 1;
-  sellForm.barberId = '';
-  sellForm.customerId = '';
-  sellForm.paymentMethod = 'PIX';
-  isSellModalOpen.value = true;
-}
 
-// EXECUTAR VENDA NO PDV
-async function handleConfirmSale() {
-  if (!sellForm.productId) {
-    toast.error('Selecione o produto que está sendo vendido.', 'Atenção');
-    return;
-  }
-  if (sellForm.quantity <= 0) {
-    toast.error('Quantidade inválida.', 'Atenção');
-    return;
-  }
-
-  playPopSound();
-  saving.value = true;
-  try {
-    const res = await api.sellProduct({
-      productId: sellForm.productId,
-      quantity: Number(sellForm.quantity),
-      barberId: sellForm.barberId || undefined,
-      customerId: sellForm.customerId || undefined,
-      paymentMethod: sellForm.paymentMethod
-    });
-
-    toast.success(res.message || 'Venda concluída com sucesso!', 'Caixa Atualizado');
-    isSellModalOpen.value = false;
-    await loadAllData();
-  } catch (err: any) {
-    toast.error(err.message || 'Erro ao processar venda no PDV.', 'Falha');
-  } finally {
-    saving.value = false;
-  }
-}
 
 // ================= CONFIRMAÇÃO DE EXCLUSÃO =================
 function confirmDeleteEntry(entry: FinancialEntry) {
@@ -624,7 +594,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-3.5 sm:p-6 lg:p-10 space-y-5 sm:space-y-8 max-w-7xl mx-auto font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors no-scrollbar">
+  <div class="p-3.5 sm:p-6 lg:p-10 space-y-5 sm:space-y-8 max-w-[1750px] w-full mx-auto font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors no-scrollbar">
     
     <!-- ============================================== -->
     <!-- CABEÇALHO SUPERIOR & AÇÕES GLOBAIS             -->
@@ -633,22 +603,33 @@ onMounted(() => {
       <div>
         <div class="flex items-center gap-2.5 flex-wrap">
           <span class="text-xs font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400">
-            Gestão Financeira &amp; Split BarblyClub
+            Controle de Caixa &amp; DRE
           </span>
           <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-            <ShieldCheck class="w-3.5 h-3.5 text-emerald-500" /> Lei Salão-Parceiro nº 13.352
+            <CheckCircle2 class="w-3.5 h-3.5 text-emerald-500" /> Livro Caixa Operacional
           </span>
         </div>
         <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white mt-1">
-          Financeiro, Repasses &amp; PDV
+          Financeiro &amp; Livro Caixa
         </h1>
         <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
-          Controle completo de receitas, despesas, repasses de comissão por Pix aos barbeiros parceiros e caixa rápido de frigobar e cosméticos.
+          Demonstrativo de receitas, despesas operacionais, fluxo de caixa e conciliação financeira da barbearia.
         </p>
       </div>
 
       <!-- Botões de Ação Topo -->
       <div class="flex items-center gap-3 shrink-0 flex-wrap">
+        <!-- Atalho para Comissões da Equipe -->
+        <router-link
+          to="/commissions"
+          class="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.03] hover:border-amber-500/50 text-slate-700 dark:text-slate-200 font-bold text-xs transition cursor-pointer"
+          title="Gestão de Comissões e Repasses da Equipe"
+        >
+          <Split class="w-4 h-4 text-amber-500" />
+          <span class="hidden sm:inline">Comissões da Equipe</span>
+          <ArrowRight class="w-3.5 h-3.5 text-slate-400" />
+        </router-link>
+
         <button 
           @click="loadAllData" 
           class="p-3 rounded-2xl bg-white dark:bg-[#0e131d] border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition shadow-sm cursor-pointer"
@@ -657,23 +638,13 @@ onMounted(() => {
           <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': loading }" />
         </button>
 
-        <!-- Botão Ação Aba 1: Novo Lançamento -->
+        <!-- Botão Novo Lançamento -->
         <button 
           @click="openCreateEntryModal('INCOME')"
           class="flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-xl shadow-emerald-500/20 transition cursor-pointer transform hover:-translate-y-0.5"
         >
           <Plus class="w-4 h-4 stroke-[3]" />
           <span>Nova Receita / Despesa</span>
-        </button>
-
-        <!-- Botão Venda Balcão (PDV) -->
-        <button 
-          @click="openSellModal()"
-          class="flex items-center gap-2 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 hover:opacity-95 text-slate-950 font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-500/20 transition cursor-pointer transform hover:-translate-y-0.5"
-          title="Venda rápida no balcão de frigobar e cosméticos"
-        >
-          <ShoppingBag class="w-4 h-4 stroke-[2.5]" />
-          <span>Venda Rápida (PDV)</span>
         </button>
       </div>
     </div>
@@ -927,7 +898,7 @@ onMounted(() => {
                 <!-- Ações -->
                 <td class="px-5 py-4 whitespace-nowrap text-right">
                   <button 
-                    @click="confirmDeleteEntry(entry)"
+                    @click.stop="confirmDeleteEntry(entry)"
                     class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition cursor-pointer"
                     title="Excluir lançamento"
                   >
@@ -983,7 +954,7 @@ onMounted(() => {
 
           <div class="mt-4 pt-3 border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between">
             <button 
-              @click="confirmDeleteEntry(entry)"
+              @click.stop="confirmDeleteEntry(entry)"
               class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 transition cursor-pointer"
               title="Excluir lançamento"
             >
@@ -1170,155 +1141,196 @@ onMounted(() => {
     </div>
 
     <!-- ========================================================================= -->
-    <!-- MODAL 2: VENDA RÁPIDA / PDV NO BALCÃO                                     -->
+    <!-- MODAL: DETALHES DO LANÇAMENTO FINANCEIRO                                  -->
     <!-- ========================================================================= -->
-    <div v-if="isSellModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">
-      <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto no-scrollbar">
+    <div v-if="isDetailModalOpen && selectedEntryForDetail" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in no-scrollbar">
+      <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-xl w-full p-6 sm:p-8 space-y-6 max-h-[92vh] overflow-y-auto no-scrollbar print:p-0 print:shadow-none print:max-w-none">
+        
         <!-- Topo Modal -->
-        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.08]">
+        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.08] print:hidden">
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 flex items-center justify-center font-black">
-              <ShoppingBag class="w-5 h-5" />
-            </div>
-            <div>
-              <h2 class="text-lg font-black text-slate-900 dark:text-white">
-                Venda Rápida (PDV Balcão)
-              </h2>
-              <p class="text-xs text-slate-500 dark:text-slate-400">
-                Baixa automática de estoque e comissão no caixa
-              </p>
-            </div>
-          </div>
-          <button @click="isSellModalOpen = false" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
-            <X class="w-5 h-5" />
-          </button>
-        </div>
-
-        <!-- Formulário PDV -->
-        <div class="space-y-4">
-          <!-- Seleção do Produto -->
-          <div>
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              Selecione o Produto *
-            </label>
-            <select 
-              v-model="sellForm.productId"
-              class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
+            <div 
+              class="w-11 h-11 rounded-2xl flex items-center justify-center font-black shadow-md"
+              :class="selectedEntryForDetail.type === 'INCOME' 
+                ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30' 
+                : 'bg-rose-500/15 text-rose-500 border border-rose-500/30'"
             >
-              <option v-for="p in products" :key="p.id" :value="p.id" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">
-                {{ p.name }} — {{ formatMoney(p.salePrice) }} (Estoque: {{ p.stockQuantity }})
-              </option>
-            </select>
-          </div>
-
-          <!-- Quantidade e Barbeiro Vendedor -->
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Quantidade
-              </label>
-              <input 
-                v-model.number="sellForm.quantity"
-                type="number" 
-                min="1"
-                :max="selectedProductForSale?.stockQuantity || 99"
-                class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-              />
+              <ArrowUpRight v-if="selectedEntryForDetail.type === 'INCOME'" class="w-6 h-6" />
+              <ArrowDownRight v-else class="w-6 h-6" />
             </div>
-
             <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Barbeiro Vendedor
-              </label>
-              <select 
-                v-model="sellForm.barberId"
-                class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
-              >
-                <option value="" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Salão direto (Sem comissão)</option>
-                <option v-for="b in barbers" :key="b.id" :value="b.id" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">
-                  {{ b.name }}
-                </option>
-              </select>
+              <div class="flex items-center gap-2">
+                <span 
+                  class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
+                  :class="selectedEntryForDetail.type === 'INCOME' 
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' 
+                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'"
+                >
+                  {{ selectedEntryForDetail.type === 'INCOME' ? 'Receita Operacional' : 'Despesa / Saída' }}
+                </span>
+                <span 
+                  class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
+                  :class="selectedEntryForDetail.status === 'PAID'
+                    ? 'bg-emerald-500 text-slate-950 font-black'
+                    : 'bg-amber-500/20 text-amber-500 border border-amber-500/30'"
+                >
+                  {{ selectedEntryForDetail.status === 'PAID' ? 'Pago' : 'Pendente' }}
+                </span>
+              </div>
+              <h2 class="text-base font-black text-slate-900 dark:text-white mt-0.5">
+                Detalhes do Lançamento
+              </h2>
             </div>
           </div>
 
-          <!-- Forma de Pagamento e Cliente -->
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Forma de Pagamento
-              </label>
-              <select 
-                v-model="sellForm.paymentMethod"
-                class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
-              >
-                <option value="PIX" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Pix Balcão</option>
-                <option value="CREDIT_CARD" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Cartão de Crédito</option>
-                <option value="DEBIT_CARD" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Cartão de Débito</option>
-                <option value="CASH" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Dinheiro em Espécie</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Cliente (Opcional)
-              </label>
-              <select 
-                v-model="sellForm.customerId"
-                class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
-              >
-                <option value="" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Consumidor Avulso</option>
-                <option v-for="c in customers" :key="c.id" :value="c.id" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">
-                  {{ c.name }}
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <!-- RESUMO EM TEMPO REAL DA VENDA -->
-          <div class="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/[0.06] space-y-2">
-            <div class="flex items-center justify-between text-xs">
-              <span class="text-slate-400">Total a Cobrar:</span>
-              <span class="text-lg font-black text-slate-900 dark:text-white">
-                {{ formatMoney(saleTotalAmount) }}
-              </span>
-            </div>
-
-            <div class="flex items-center justify-between text-xs pt-2 border-t border-slate-200/50 dark:border-white/[0.04]">
-              <span class="text-slate-400">Comissão Barbeiro ({{ selectedProductForSale?.commissionPercentage || 0 }}%):</span>
-              <span class="font-bold" :class="saleCommissionAmount > 0 ? 'text-amber-500' : 'text-slate-400'">
-                {{ formatMoney(saleCommissionAmount) }}
-              </span>
-            </div>
-
-            <div class="flex items-center justify-between text-xs pt-1">
-              <span class="text-slate-400">Cota Retida Barbearia:</span>
-              <span class="font-bold text-emerald-600 dark:text-emerald-400">
-                {{ formatMoney(saleTotalAmount - saleCommissionAmount) }}
-              </span>
-            </div>
+          <div class="flex items-center gap-2">
+            <button 
+              @click="printEntryDetail"
+              class="p-2 rounded-xl text-slate-400 hover:text-amber-500 transition cursor-pointer"
+              title="Imprimir / Salvar PDF"
+            >
+              <FileText class="w-4 h-4" />
+            </button>
+            <button 
+              @click="isDetailModalOpen = false" 
+              class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+            >
+              <X class="w-5 h-5" />
+            </button>
           </div>
         </div>
 
-        <!-- Botões Rodapé -->
-        <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-white/[0.08]">
-          <button 
-            type="button" 
-            @click="isSellModalOpen = false"
-            class="px-5 py-3 rounded-2xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 font-bold text-xs uppercase tracking-wider cursor-pointer"
+        <!-- Card de Destaque com Valor e Descrição -->
+        <div 
+          class="p-5 rounded-2xl border space-y-2 text-center"
+          :class="selectedEntryForDetail.type === 'INCOME'
+            ? 'bg-emerald-500/[0.04] border-emerald-500/20'
+            : 'bg-rose-500/[0.04] border-rose-500/20'"
+        >
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Valor do Lançamento
+          </span>
+          <div 
+            class="text-3xl sm:text-4xl font-black tracking-tight"
+            :class="selectedEntryForDetail.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'"
           >
-            Cancelar
-          </button>
+            {{ selectedEntryForDetail.type === 'INCOME' ? '+' : '-' }} {{ formatMoney(selectedEntryForDetail.amount) }}
+          </div>
+          <p class="text-sm font-bold text-slate-800 dark:text-slate-200 max-w-md mx-auto">
+            {{ selectedEntryForDetail.description }}
+          </p>
+        </div>
+
+        <!-- Grade de Detalhes -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <!-- Categoria -->
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Categoria</span>
+            <span class="font-bold text-slate-900 dark:text-white mt-1 block">
+              {{ selectedEntryForDetail.category }}
+            </span>
+          </div>
+
+          <!-- Forma de Pagamento -->
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Forma de Pagamento</span>
+            <span class="font-bold text-slate-900 dark:text-white mt-1 block">
+              {{ getPaymentMethodLabel(selectedEntryForDetail.paymentMethod) }}
+            </span>
+          </div>
+
+          <!-- Data do Registro -->
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Data do Lançamento</span>
+            <span class="font-bold text-slate-900 dark:text-white mt-1 block">
+              {{ formatDate(selectedEntryForDetail.paidAt || selectedEntryForDetail.createdAt) }}
+            </span>
+          </div>
+
+          <!-- Data de Vencimento -->
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
+            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Data de Vencimento</span>
+            <span class="font-bold text-slate-900 dark:text-white mt-1 block">
+              {{ selectedEntryForDetail.dueDate ? formatDate(selectedEntryForDetail.dueDate) : 'Liquidado no ato' }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Seção Profissional & Comissão (se houver) -->
+        <div 
+          v-if="selectedEntryForDetail.barberName || (selectedEntryForDetail.barberCommission && selectedEntryForDetail.barberCommission > 0)"
+          class="p-4 rounded-2xl bg-amber-500/[0.05] border border-amber-500/20 space-y-2.5"
+        >
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+              Vínculo com Profissional-Parceiro
+            </span>
+            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              Salão-Parceiro
+            </span>
+          </div>
+
+          <div class="flex items-center justify-between gap-3 text-xs">
+            <div class="flex items-center gap-2">
+              <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 font-bold flex items-center justify-center shrink-0">
+                <User class="w-4 h-4" />
+              </div>
+              <div>
+                <span class="font-black text-slate-900 dark:text-white block">
+                  {{ selectedEntryForDetail.barberName || 'Barbeiro Parceiro' }}
+                </span>
+                <span class="text-[10px] text-slate-400">Comissão apurada no serviço</span>
+              </div>
+            </div>
+
+            <div class="text-right">
+              <span class="text-[10px] text-slate-400 font-bold block uppercase">Comissão Barbeiro</span>
+              <span class="font-black text-amber-500 text-sm">
+                {{ formatMoney(selectedEntryForDetail.barberCommission) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="pt-2 border-t border-amber-500/15 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <span>Cota Líquida da Barbearia:</span>
+            <span class="font-bold text-emerald-600 dark:text-emerald-400">
+              {{ formatMoney(selectedEntryForDetail.amount - (selectedEntryForDetail.barberCommission || 0)) }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Identificador do Sistema com Botão de Cópia -->
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04] flex items-center justify-between text-[11px]">
+          <span class="text-slate-400 font-mono">ID: {{ selectedEntryForDetail.id }}</span>
           <button 
-            type="button" 
-            @click="handleConfirmSale"
-            :disabled="saving"
-            class="flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 hover:opacity-95 text-[#07090e] font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+            @click="copyEntryId(selectedEntryForDetail.id)"
+            class="text-amber-500 hover:text-amber-400 font-bold transition cursor-pointer flex items-center gap-1"
           >
-            <Loader2 v-if="saving" class="w-4 h-4 animate-spin" />
-            <span>Concluir Venda no Caixa</span>
+            <Copy class="w-3 h-3" />
+            <span>Copiar ID</span>
           </button>
         </div>
+
+        <!-- Botões de Ação Rodapé -->
+        <div class="flex items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-white/[0.08] print:hidden">
+          <button 
+            type="button" 
+            @click="confirmDeleteEntry(selectedEntryForDetail); isDetailModalOpen = false;"
+            class="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+          >
+            <Trash2 class="w-4 h-4" />
+            <span>Excluir Lançamento</span>
+          </button>
+
+          <button 
+            type="button" 
+            @click="isDetailModalOpen = false"
+            class="px-6 py-2.5 rounded-2xl bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10 font-black text-xs uppercase tracking-wider transition cursor-pointer"
+          >
+            Fechar
+          </button>
+        </div>
+
       </div>
     </div>
 

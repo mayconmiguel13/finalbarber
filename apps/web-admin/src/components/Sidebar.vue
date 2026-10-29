@@ -229,7 +229,6 @@ function handleLinkClick() {
               <Split class="w-4 h-4 text-amber-500" />
               <span>Comissões &amp; Repasses</span>
             </div>
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 uppercase">Lei 13.352</span>
           </router-link>
         </nav>
       </div>
