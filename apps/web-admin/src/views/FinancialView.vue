@@ -48,11 +48,11 @@ import { useToastStore } from '../stores/toast';
 const toast = useToastStore();
 
 // ================= NAVEGAÇÃO DE ABAS =================
-const activeTab = ref<'SUMMARY' | 'SPLITS' | 'PRODUCTS'>(
-  (localStorage.getItem('barbly_financial_tab') as 'SUMMARY' | 'SPLITS' | 'PRODUCTS') || 'SUMMARY'
+const activeTab = ref<'SUMMARY' | 'SPLITS'>(
+  (localStorage.getItem('barbly_financial_tab') === 'SPLITS' ? 'SPLITS' : 'SUMMARY')
 );
 
-function setActiveTab(tab: 'SUMMARY' | 'SPLITS' | 'PRODUCTS') {
+function setActiveTab(tab: 'SUMMARY' | 'SPLITS') {
   playPopSound();
   activeTab.value = tab;
   localStorage.setItem('barbly_financial_tab', tab);
@@ -77,14 +77,7 @@ function setSplitViewMode(mode: 'CARDS' | 'LIST') {
   localStorage.setItem('barbly_split_view', mode);
 }
 
-const productViewMode = ref<'CARDS' | 'LIST'>(
-  (localStorage.getItem('barbly_product_view') as 'CARDS' | 'LIST') || 'CARDS'
-);
-function setProductViewMode(mode: 'CARDS' | 'LIST') {
-  playPopSound();
-  productViewMode.value = mode;
-  localStorage.setItem('barbly_product_view', mode);
-}
+
 
 // ================= ESTADO GERAL =================
 const loading = ref(true);
@@ -116,9 +109,7 @@ const entryCategoryFilter = ref<string>('Todos');
 // Filtros de Splits
 const splitSearchQuery = ref('');
 
-// Filtros de Produtos
-const productSearchQuery = ref('');
-const productCategoryFilter = ref<string>('Todos');
+
 
 // Chave Pix copiada
 const copiedPixKey = ref<string | null>(null);
@@ -281,21 +272,7 @@ const payoutForm = reactive({
   notes: ''
 });
 
-// 3. Modal Produto (Criar / Editar)
-const isProductModalOpen = ref(false);
-const isEditingProduct = ref(false);
-const editingProductId = ref<string | null>(null);
-const productForm = reactive({
-  name: '',
-  category: 'Frigobar & Bebidas',
-  description: '',
-  costPrice: 0,
-  salePrice: 10,
-  stockQuantity: 24,
-  minStockAlert: 5,
-  commissionPercentage: 0, // padrão 0% para bebidas
-  photoUrl: ''
-});
+
 
 // 4. Modal PDV / Venda Rápida de Produto
 const isSellModalOpen = ref(false);
@@ -309,21 +286,9 @@ const sellForm = reactive({
 
 // 5. Modal de Confirmação de Exclusão
 const isDeleteModalOpen = ref(false);
-const deleteTargetType = ref<'ENTRY' | 'PRODUCT' | null>(null);
+const deleteTargetType = ref<'ENTRY' | null>(null);
 const deleteTargetId = ref<string | null>(null);
 const deleteTargetTitle = ref<string>('');
-
-// Presets de Fotos de Produtos
-const productPhotoPresets = [
-  { name: 'Heineken Long Neck', url: 'https://images.unsplash.com/photo-1608270192804-d54620ec4221?auto=format&fit=crop&q=80&w=600' },
-  { name: 'Corona Extra', url: 'https://images.unsplash.com/photo-1584225064785-c62a8b43d148?auto=format&fit=crop&q=80&w=600' },
-  { name: 'Coca-Cola Gelada', url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&q=80&w=600' },
-  { name: 'Água Mineral', url: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&q=80&w=600' },
-  { name: 'Pomada Matte Capilar', url: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&q=80&w=600' },
-  { name: 'Óleo para Barba Wood', url: 'https://images.unsplash.com/photo-1621607512214-68297480165e?auto=format&fit=crop&q=80&w=600' },
-  { name: 'Shampoo & Balm', url: 'https://images.unsplash.com/photo-1535585209827-a15fcdbc4c2d?auto=format&fit=crop&q=80&w=600' },
-  { name: 'Loção Pós-Barba', url: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&q=80&w=600' },
-];
 
 // Web Audio sound effect
 function playPopSound() {
@@ -507,27 +472,6 @@ const filteredSplits = computed(() => {
   );
 });
 
-// 3. Produtos Filtrados
-const filteredProducts = computed(() => {
-  return products.value.filter((p) => {
-    if (productCategoryFilter.value !== 'Todos' && p.category !== productCategoryFilter.value) {
-      return false;
-    }
-    const q = productSearchQuery.value.toLowerCase().trim();
-    if (!q) return true;
-    return (
-      p.name.toLowerCase().includes(q) ||
-      p.description?.toLowerCase().includes(q) ||
-      p.category?.toLowerCase().includes(q)
-    );
-  });
-});
-
-// Total de itens em estoque crítico
-const lowStockProductsCount = computed(() => {
-  return products.value.filter((p) => Number(p.stockQuantity) <= Number(p.minStockAlert || 5)).length;
-});
-
 // Produto selecionado no modal PDV
 const selectedProductForSale = computed(() => {
   return products.value.find((p) => p.id === sellForm.productId) || null;
@@ -554,14 +498,7 @@ const distinctEntryCategories = computed(() => {
   return ['Todos', ...Array.from(cats)];
 });
 
-// Categorias distintas de produtos para filtro
-const distinctProductCategories = computed(() => {
-  const cats = new Set<string>();
-  products.value.forEach((p) => {
-    if (p.category) cats.add(p.category);
-  });
-  return ['Todos', ...Array.from(cats)];
-});
+
 
 // ================= AÇÕES FINANCEIRAS =================
 // ABRIR MODAL NOVO LANÇAMENTO
@@ -653,105 +590,7 @@ async function handleConfirmPayout() {
   }
 }
 
-// ================= AÇÕES DE PRODUTOS & PDV =================
-// ABRIR MODAL CRIAR PRODUTO
-function openCreateProductModal() {
-  playPopSound();
-  isEditingProduct.value = false;
-  editingProductId.value = null;
-  productForm.name = '';
-  productForm.category = 'Frigobar & Bebidas';
-  productForm.description = '';
-  productForm.costPrice = 4.5;
-  productForm.salePrice = 12.0;
-  productForm.stockQuantity = 24;
-  productForm.minStockAlert = 6;
-  productForm.commissionPercentage = 0; // cervejas normalmente 0% comissão
-  productForm.photoUrl = '';
-  isProductModalOpen.value = true;
-}
-
-// ABRIR MODAL EDITAR PRODUTO
-function openEditProductModal(product: Product) {
-  playPopSound();
-  isEditingProduct.value = true;
-  editingProductId.value = product.id;
-  productForm.name = product.name;
-  productForm.category = product.category || 'Frigobar & Bebidas';
-  productForm.description = product.description || '';
-  productForm.costPrice = Number(product.costPrice) || 0;
-  productForm.salePrice = Number(product.salePrice) || 0;
-  productForm.stockQuantity = Number(product.stockQuantity) || 0;
-  productForm.minStockAlert = Number(product.minStockAlert) || 5;
-  productForm.commissionPercentage = Number(product.commissionPercentage) || 0;
-  productForm.photoUrl = product.photoUrl || '';
-  isProductModalOpen.value = true;
-}
-
-// UPLOAD DE FOTO DE PRODUTO
-async function handleProductFileUpload(event: Event) {
-  const target = event.target as HTMLInputElement;
-  if (!target.files || !target.files[0]) return;
-  try {
-    const compressed = await compressImage(target.files[0]);
-    productForm.photoUrl = compressed;
-    playPopSound();
-    toast.success('Foto do produto carregada!', 'Imagem Pronta');
-  } catch {
-    toast.error('Erro ao ler foto do produto', 'Erro');
-  }
-}
-
-// SELECIONAR PRESET DE FOTO
-function selectProductPreset(url: string) {
-  playPopSound();
-  productForm.photoUrl = url;
-}
-
-// SALVAR PRODUTO
-async function handleSaveProduct() {
-  if (!productForm.name.trim()) {
-    toast.error('Informe o nome do produto.', 'Atenção');
-    return;
-  }
-  if (productForm.salePrice <= 0) {
-    toast.error('O preço de venda deve ser maior que zero.', 'Atenção');
-    return;
-  }
-
-  playPopSound();
-  saving.value = true;
-  try {
-    const payload = {
-      name: productForm.name.trim(),
-      category: productForm.category,
-      description: productForm.description.trim() || undefined,
-      costPrice: Number(productForm.costPrice),
-      salePrice: Number(productForm.salePrice),
-      stockQuantity: Number(productForm.stockQuantity),
-      minStockAlert: Number(productForm.minStockAlert),
-      commissionPercentage: Number(productForm.commissionPercentage),
-      photoUrl: productForm.photoUrl.trim() || undefined
-    };
-
-    if (isEditingProduct.value && editingProductId.value) {
-      await api.updateProduct(editingProductId.value, payload);
-      toast.success(`Produto "${productForm.name}" atualizado!`, 'Produto Salvo');
-    } else {
-      await api.createProduct(payload);
-      toast.success(`Produto "${productForm.name}" cadastrado no estoque!`, 'Produto Criado');
-    }
-
-    isProductModalOpen.value = false;
-    await loadAllData();
-  } catch (err: any) {
-    toast.error(err.message || 'Erro ao salvar produto.', 'Falha');
-  } finally {
-    saving.value = false;
-  }
-}
-
-// ABRIR MODAL VENDA RÁPIDA / PDV
+// ================= PDV / VENDA RÁPIDA DE BALCÃO =================
 function openSellModal(product?: Product) {
   playPopSound();
   sellForm.productId = product ? product.id : (products.value[0]?.id || '');
@@ -803,13 +642,7 @@ function confirmDeleteEntry(entry: FinancialEntry) {
   isDeleteModalOpen.value = true;
 }
 
-function confirmDeleteProduct(product: Product) {
-  playPopSound();
-  deleteTargetType.value = 'PRODUCT';
-  deleteTargetId.value = product.id;
-  deleteTargetTitle.value = `Produto: ${product.name} (Estoque: ${product.stockQuantity})`;
-  isDeleteModalOpen.value = true;
-}
+
 
 async function executeDelete() {
   if (!deleteTargetId.value || !deleteTargetType.value) return;
@@ -820,9 +653,6 @@ async function executeDelete() {
     if (deleteTargetType.value === 'ENTRY') {
       await api.deleteFinancialEntry(deleteTargetId.value);
       toast.success('Lançamento removido do extrato.', 'Excluído');
-    } else if (deleteTargetType.value === 'PRODUCT') {
-      await api.deleteProduct(deleteTargetId.value);
-      toast.success('Produto desativado do catálogo.', 'Excluído');
     }
     isDeleteModalOpen.value = false;
     await loadAllData();
@@ -882,24 +712,15 @@ onMounted(() => {
           <span>Nova Receita / Despesa</span>
         </button>
 
-        <!-- Botão Ação Aba 3: Novo Produto e Venda PDV -->
-        <div v-if="activeTab === 'PRODUCTS'" class="flex items-center gap-2">
-          <button 
-            @click="openSellModal()"
-            class="flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 hover:opacity-95 text-[#07090e] font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-500/20 transition cursor-pointer transform hover:-translate-y-0.5"
-          >
-            <ShoppingBag class="w-4 h-4 stroke-[2.5]" />
-            <span>Venda Rápida (PDV)</span>
-          </button>
-
-          <button 
-            @click="openCreateProductModal"
-            class="flex items-center gap-2 px-4 py-3 rounded-2xl bg-white dark:bg-[#0e131d] border border-slate-200 dark:border-white/10 hover:border-amber-500 text-slate-700 dark:text-slate-200 font-bold text-xs uppercase tracking-wider transition cursor-pointer"
-          >
-            <Plus class="w-4 h-4 stroke-[3]" />
-            <span>Cadastrar Produto</span>
-          </button>
-        </div>
+        <!-- Botão Venda Balcão (PDV) -->
+        <button 
+          @click="openSellModal()"
+          class="flex items-center gap-2 px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 hover:opacity-95 text-slate-950 font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-500/20 transition cursor-pointer transform hover:-translate-y-0.5"
+          title="Venda rápida no balcão de frigobar e cosméticos"
+        >
+          <ShoppingBag class="w-4 h-4 stroke-[2.5]" />
+          <span>Venda Rápida (PDV)</span>
+        </button>
       </div>
     </div>
 
@@ -941,24 +762,6 @@ onMounted(() => {
             :class="activeTab === 'SPLITS' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-white/5 text-slate-500'"
           >
             {{ splits.length }} Barbeiros
-          </span>
-        </button>
-
-        <!-- Aba 3: Produtos & PDV -->
-        <button 
-          @click="setActiveTab('PRODUCTS')"
-          class="flex items-center gap-2.5 px-5 py-3.5 border-b-2 font-bold text-sm tracking-wide transition cursor-pointer whitespace-nowrap"
-          :class="activeTab === 'PRODUCTS' 
-            ? 'border-amber-500 text-amber-600 dark:text-amber-400 font-black' 
-            : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'"
-        >
-          <Package class="w-4 h-4" />
-          <span>Produtos &amp; Frigobar (PDV)</span>
-          <span 
-            class="px-2 py-0.5 rounded-full text-[10px] font-black"
-            :class="activeTab === 'PRODUCTS' ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' : 'bg-slate-100 dark:bg-white/5 text-slate-500'"
-          >
-            {{ products.length }} Itens
           </span>
         </button>
       </div>
@@ -1003,24 +806,7 @@ onMounted(() => {
           </button>
         </template>
 
-        <template v-else-if="activeTab === 'PRODUCTS'">
-          <button 
-            @click="setProductViewMode('CARDS')" 
-            :class="productViewMode === 'CARDS' ? 'bg-white dark:bg-[#121824] shadow-sm text-slate-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
-            class="p-1.5 rounded-lg transition cursor-pointer"
-            title="Visualização em Cards"
-          >
-            <LayoutGrid class="w-4 h-4" />
-          </button>
-          <button 
-            @click="setProductViewMode('LIST')" 
-            :class="productViewMode === 'LIST' ? 'bg-white dark:bg-[#121824] shadow-sm text-slate-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
-            class="p-1.5 rounded-lg transition cursor-pointer"
-            title="Visualização em Lista / Tabela"
-          >
-            <List class="w-4 h-4" />
-          </button>
-        </template>
+        
       </div>
     </div>
 
@@ -1588,240 +1374,6 @@ onMounted(() => {
     </div>
 
     <!-- ========================================================================= -->
-    <!-- ABA 3: PRODUTOS, BEBIDAS & FRIGOBAR (PDV)                                  -->
-    <!-- ========================================================================= -->
-    <div v-if="activeTab === 'PRODUCTS'" class="space-y-6">
-      <!-- Barra de Filtros e Busca de Produtos -->
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-        <!-- Input de Busca -->
-        <div class="relative flex-1 max-w-md">
-          <Search class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input 
-            v-model="productSearchQuery" 
-            type="text" 
-            placeholder="Buscar por cerveja, pomada, refrigerante..."
-            class="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white dark:bg-[#0e131d] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-          />
-        </div>
-
-        <!-- Categorias e Alerta de Estoque -->
-        <div class="flex items-center gap-3 flex-wrap">
-          <div v-if="lowStockProductsCount > 0" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-bold">
-            <AlertTriangle class="w-3.5 h-3.5" />
-            <span>{{ lowStockProductsCount }} itens com estoque baixo</span>
-          </div>
-
-          <!-- Select Categoria Produto -->
-          <select 
-            v-model="productCategoryFilter"
-            class="px-3 py-2 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-slate-200 dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
-          >
-            <option v-for="cat in distinctProductCategories" :key="cat" :value="cat" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">
-              {{ cat }}
-            </option>
-          </select>
-        </div>
-      </div>
-
-      <!-- VISUALIZAÇÃO EM CARDS DOS PRODUTOS -->
-      <div v-if="productViewMode === 'CARDS'" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        <div 
-          v-for="product in filteredProducts" 
-          :key="product.id"
-          class="bg-white dark:bg-[#0e131d] rounded-2xl border border-slate-200 dark:border-white/[0.08] shadow-sm overflow-hidden flex flex-col justify-between group hover:border-amber-500/40 transition"
-        >
-          <!-- Foto do Produto -->
-          <div class="relative h-44 bg-slate-100 dark:bg-white/[0.02] overflow-hidden">
-            <img 
-              :src="product.photoUrl || 'https://images.unsplash.com/photo-1608270192804-d54620ec4221?auto=format&fit=crop&q=80&w=600'" 
-              :alt="product.name"
-              class="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-            />
-            
-            <!-- Badges no topo da foto -->
-            <div class="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-              <span class="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-slate-900/80 backdrop-blur-md text-white border border-white/10">
-                {{ product.category || 'Geral' }}
-              </span>
-            </div>
-
-            <!-- Badge Comissão Barbeiro -->
-            <div class="absolute top-2.5 right-2.5">
-              <span 
-                class="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider backdrop-blur-md border"
-                :class="Number(product.commissionPercentage) > 0 ? 'bg-amber-500/90 text-slate-950 border-amber-400' : 'bg-slate-900/80 text-slate-300 border-white/10'"
-              >
-                {{ Number(product.commissionPercentage) > 0 ? `${product.commissionPercentage}% Comis.` : 'Sem Comis. (0%)' }}
-              </span>
-            </div>
-
-            <!-- Alerta Estoque Baixo -->
-            <div v-if="Number(product.stockQuantity) <= Number(product.minStockAlert || 5)" class="absolute bottom-2.5 left-2.5 right-2.5">
-              <span class="px-2 py-1 rounded-md text-[10px] font-bold bg-rose-600/90 backdrop-blur-md text-white flex items-center justify-center gap-1 shadow-md">
-                <AlertTriangle class="w-3 h-3" /> Repor Estoque ({{ product.stockQuantity }} restantes)
-              </span>
-            </div>
-          </div>
-
-          <!-- Informações do Produto -->
-          <div class="p-4 flex-1 flex flex-col justify-between">
-            <div>
-              <h3 class="font-bold text-slate-900 dark:text-white text-sm line-clamp-1">
-                {{ product.name }}
-              </h3>
-              <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
-                {{ product.description || 'Produto disponível para consumo e venda rápida no balcão.' }}
-              </p>
-            </div>
-
-            <!-- Dados de Preço e Estoque -->
-            <div class="mt-4 pt-3 border-t border-slate-100 dark:border-white/[0.04]">
-              <div class="flex items-center justify-between text-xs">
-                <span class="text-slate-400">Estoque:</span>
-                <span class="font-bold" :class="Number(product.stockQuantity) <= Number(product.minStockAlert || 5) ? 'text-rose-500' : 'text-slate-700 dark:text-slate-200'">
-                  {{ product.stockQuantity }} un.
-                </span>
-              </div>
-              <div class="flex items-center justify-between mt-1">
-                <span class="text-[11px] text-slate-400">Preço de Venda:</span>
-                <span class="font-black text-base text-slate-900 dark:text-white">
-                  {{ formatMoney(product.salePrice) }}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Botões de Ação do Card -->
-          <div class="p-3 bg-slate-50 dark:bg-white/[0.02] border-t border-slate-100 dark:border-white/[0.06] flex items-center justify-between gap-2">
-            <div class="flex items-center gap-1">
-              <button 
-                @click="openEditProductModal(product)"
-                class="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
-                title="Editar produto"
-              >
-                <Edit3 class="w-4 h-4" />
-              </button>
-              <button 
-                @click="confirmDeleteProduct(product)"
-                class="p-2 rounded-lg text-slate-400 hover:text-rose-500 transition cursor-pointer"
-                title="Remover produto"
-              >
-                <Trash2 class="w-4 h-4" />
-              </button>
-            </div>
-
-            <button 
-              @click="openSellModal(product)"
-              :disabled="Number(product.stockQuantity) <= 0"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-400 hover:opacity-95 text-[#07090e] font-black text-[11px] uppercase tracking-wider transition cursor-pointer shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <ShoppingBag class="w-3.5 h-3.5" />
-              <span>Vender</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- VISUALIZAÇÃO EM TABELA / LISTA DOS PRODUTOS -->
-      <div v-else class="bg-white dark:bg-[#0e131d] rounded-2xl border border-slate-200 dark:border-white/[0.08] shadow-sm overflow-hidden">
-        <div class="overflow-x-auto no-scrollbar">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-slate-50 dark:bg-white/[0.02] border-b border-slate-200 dark:border-white/[0.06] text-slate-400 uppercase tracking-wider font-bold text-[10px]">
-              <tr>
-                <th class="px-5 py-3.5">Produto</th>
-                <th class="px-5 py-3.5">Categoria</th>
-                <th class="px-5 py-3.5 text-right">Estoque</th>
-                <th class="px-5 py-3.5 text-right">Custo</th>
-                <th class="px-5 py-3.5 text-right">Venda</th>
-                <th class="px-5 py-3.5 text-right">Comissão Barbeiro</th>
-                <th class="px-5 py-3.5 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-white/[0.04]">
-              <tr 
-                v-for="product in filteredProducts" 
-                :key="product.id"
-                class="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition"
-              >
-                <!-- Produto com Miniatura -->
-                <td class="px-5 py-4 whitespace-nowrap">
-                  <div class="flex items-center gap-3">
-                    <img 
-                      :src="product.photoUrl || 'https://images.unsplash.com/photo-1608270192804-d54620ec4221?auto=format&fit=crop&q=80&w=200'" 
-                      :alt="product.name"
-                      class="w-10 h-10 rounded-xl object-cover border border-slate-200 dark:border-white/10"
-                    />
-                    <div>
-                      <div class="font-bold text-slate-900 dark:text-white">{{ product.name }}</div>
-                      <div class="text-[11px] text-slate-400 line-clamp-1">{{ product.description }}</div>
-                    </div>
-                  </div>
-                </td>
-
-                <!-- Categoria -->
-                <td class="px-5 py-4 whitespace-nowrap">
-                  <span class="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-white/[0.05] text-slate-600 dark:text-slate-300 text-[11px] font-medium">
-                    {{ product.category || 'Geral' }}
-                  </span>
-                </td>
-
-                <!-- Estoque -->
-                <td class="px-5 py-4 whitespace-nowrap text-right font-bold" :class="Number(product.stockQuantity) <= Number(product.minStockAlert || 5) ? 'text-rose-500' : 'text-slate-700 dark:text-slate-300'">
-                  {{ product.stockQuantity }} un.
-                </td>
-
-                <!-- Custo -->
-                <td class="px-5 py-4 whitespace-nowrap text-right font-medium text-slate-400">
-                  {{ formatMoney(product.costPrice) }}
-                </td>
-
-                <!-- Venda -->
-                <td class="px-5 py-4 whitespace-nowrap text-right font-black text-sm text-slate-900 dark:text-white">
-                  {{ formatMoney(product.salePrice) }}
-                </td>
-
-                <!-- Comissão Barbeiro -->
-                <td class="px-5 py-4 whitespace-nowrap text-right">
-                  <span 
-                    class="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider"
-                    :class="Number(product.commissionPercentage) > 0 ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-slate-100 dark:bg-white/5 text-slate-400'"
-                  >
-                    {{ Number(product.commissionPercentage) > 0 ? `${product.commissionPercentage}%` : '0% (Sem comissão)' }}
-                  </span>
-                </td>
-
-                <!-- Ações -->
-                <td class="px-5 py-4 whitespace-nowrap text-right">
-                  <div class="flex items-center justify-end gap-1">
-                    <button 
-                      @click="openSellModal(product)"
-                      :disabled="Number(product.stockQuantity) <= 0"
-                      class="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-black text-[11px] uppercase tracking-wider hover:opacity-90 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      Vender
-                    </button>
-                    <button 
-                      @click="openEditProductModal(product)"
-                      class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white transition cursor-pointer"
-                    >
-                      <Edit3 class="w-4 h-4" />
-                    </button>
-                    <button 
-                      @click="confirmDeleteProduct(product)"
-                      class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 transition cursor-pointer"
-                    >
-                      <Trash2 class="w-4 h-4" />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================================================= -->
     <!-- MODAL 1: NOVO LANÇAMENTO (RECEITA OU DESPESA)                             -->
     <!-- ========================================================================= -->
     <div v-if="isEntryModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">
@@ -2099,210 +1651,6 @@ onMounted(() => {
           >
             <Loader2 v-if="saving" class="w-4 h-4 animate-spin" />
             <span>Confirmar Baixa Pix</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ========================================================================= -->
-    <!-- MODAL 3: CADASTRO / EDIÇÃO DE PRODUTO                                     -->
-    <!-- ========================================================================= -->
-    <div v-if="isProductModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">
-      <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-xl w-full p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto no-scrollbar">
-        <!-- Topo Modal -->
-        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.08]">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-black">
-              <Package class="w-5 h-5" />
-            </div>
-            <div>
-              <h2 class="text-lg font-black text-slate-900 dark:text-white">
-                {{ isEditingProduct ? 'Editar Produto' : 'Cadastrar Novo Produto' }}
-              </h2>
-              <p class="text-xs text-slate-500 dark:text-slate-400">
-                Cosméticos, pomadas, frigobar ou bebidas para venda no caixa
-              </p>
-            </div>
-          </div>
-          <button @click="isProductModalOpen = false" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
-            <X class="w-5 h-5" />
-          </button>
-        </div>
-
-        <!-- Formulário -->
-        <div class="space-y-4">
-          <!-- Nome e Categoria -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Nome do Produto *
-              </label>
-              <input 
-                v-model="productForm.name"
-                type="text" 
-                placeholder="Ex: Cerveja Heineken Long Neck 330ml"
-                class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-              />
-            </div>
-
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Categoria
-              </label>
-              <select 
-                v-model="productForm.category"
-                class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
-              >
-                <option value="Frigobar & Bebidas" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Frigobar &amp; Bebidas Alcoólicas</option>
-                <option value="Bebidas sem Álcool" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Bebidas sem Álcool / Refrigerantes</option>
-                <option value="Cosméticos & Pomadas" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Cosméticos, Pomadas &amp; Óleos</option>
-                <option value="Acessórios & Cuidados" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Acessórios &amp; Pós-Barba</option>
-                <option value="Outros" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Outros</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Preço de Custo, Preço de Venda, Estoque Atual e Mínimo -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div>
-              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Custo (R$)
-              </label>
-              <input 
-                v-model.number="productForm.costPrice"
-                type="number" 
-                step="0.01" 
-                min="0"
-                class="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label class="block text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-1.5">
-                Venda (R$) *
-              </label>
-              <input 
-                v-model.number="productForm.salePrice"
-                type="number" 
-                step="0.01" 
-                min="0.01"
-                class="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Estoque Inicial
-              </label>
-              <input 
-                v-model.number="productForm.stockQuantity"
-                type="number" 
-                min="0"
-                class="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Alerta Mínimo
-              </label>
-              <input 
-                v-model.number="productForm.minStockAlert"
-                type="number" 
-                min="1"
-                class="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white"
-              />
-            </div>
-          </div>
-
-          <!-- COMISSÃO DO BARBEIRO SOBRE ESTE PRODUTO (%) -->
-          <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-2">
-            <div class="flex items-center justify-between">
-              <label class="text-xs font-black text-amber-700 dark:text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Sparkles class="w-4 h-4 text-amber-500" />
-                Comissão do Barbeiro na Venda (%)
-              </label>
-              <span class="text-xs font-black text-amber-600 dark:text-amber-400">
-                {{ productForm.commissionPercentage }}%
-              </span>
-            </div>
-            
-            <input 
-              v-model.number="productForm.commissionPercentage"
-              type="range" 
-              min="0" 
-              max="100" 
-              step="5"
-              class="w-full accent-amber-500 cursor-pointer"
-            />
-
-            <div class="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-              <span>0% (Bebidas/Frigobar: sem comissão)</span>
-              <span>10% a 20% (Cosméticos &amp; Pomadas)</span>
-            </div>
-          </div>
-
-          <!-- Foto do Produto: Upload ou Presets -->
-          <div>
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              Foto do Produto
-            </label>
-
-            <!-- Foto Preview -->
-            <div v-if="productForm.photoUrl" class="mb-3 relative w-24 h-24 rounded-2xl overflow-hidden border border-slate-200 dark:border-white/10 group">
-              <img :src="productForm.photoUrl" alt="Preview" class="w-full h-full object-cover" />
-              <button 
-                type="button" 
-                @click="productForm.photoUrl = ''" 
-                class="absolute inset-0 bg-slate-950/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer"
-              >
-                <X class="w-5 h-5" />
-              </button>
-            </div>
-
-            <div class="flex items-center gap-3">
-              <label class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 hover:border-amber-500 text-xs font-bold text-slate-700 dark:text-slate-200 transition cursor-pointer">
-                <UploadCloud class="w-4 h-4 text-amber-500" />
-                <span>Enviar Foto do Computador</span>
-                <input type="file" accept="image/*" class="hidden" @change="handleProductFileUpload" />
-              </label>
-            </div>
-
-            <!-- Presets Rápidos -->
-            <div class="mt-3">
-              <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Ou selecione uma foto pronta:</div>
-              <div class="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-                <button 
-                  v-for="preset in productPhotoPresets" 
-                  :key="preset.name"
-                  type="button"
-                  @click="selectProductPreset(preset.url)"
-                  class="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 hover:border-amber-500 text-[10px] font-bold text-slate-600 dark:text-slate-300 whitespace-nowrap transition cursor-pointer"
-                >
-                  {{ preset.name }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Botões Rodapé -->
-        <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-white/[0.08]">
-          <button 
-            type="button" 
-            @click="isProductModalOpen = false"
-            class="px-5 py-3 rounded-2xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 font-bold text-xs uppercase tracking-wider cursor-pointer"
-          >
-            Cancelar
-          </button>
-          <button 
-            type="button" 
-            @click="handleSaveProduct"
-            :disabled="saving"
-            class="flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 hover:opacity-95 text-[#07090e] font-black text-xs uppercase tracking-wider shadow-xl shadow-amber-500/20 cursor-pointer disabled:opacity-50"
-          >
-            <Loader2 v-if="saving" class="w-4 h-4 animate-spin" />
-            <span>{{ isEditingProduct ? 'Salvar Alterações' : 'Cadastrar no Estoque' }}</span>
           </button>
         </div>
       </div>
