@@ -1730,61 +1730,61 @@ onMounted(() => {
           <!-- Gold -->
           <div 
             @click="selectThemeColor('gold')"
-            class="p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between"
+            class="preserve-palette p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between"
             :class="form.themeColor === 'gold' ? 'border-amber-500 bg-amber-500/10' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/30 hover:border-slate-300 dark:hover:border-white/20'"
           >
-            <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center justify-between mb-3 preserve-palette">
               <span class="text-xs font-bold text-slate-900 dark:text-white">Champagne Gold</span>
-              <div class="w-5 h-5 rounded-full bg-amber-400 flex items-center justify-center text-black" v-if="form.themeColor === 'gold'">
+              <div class="w-5 h-5 rounded-full bg-amber-400 flex items-center justify-center text-black preserve-palette" v-if="form.themeColor === 'gold'">
                 <Check class="w-3 h-3" />
               </div>
             </div>
-            <div class="h-8 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 shadow-sm"></div>
+            <div class="h-8 rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 shadow-sm preserve-palette"></div>
           </div>
 
           <!-- Blue -->
           <div 
             @click="selectThemeColor('blue')"
-            class="p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between"
+            class="preserve-palette p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between"
             :class="form.themeColor === 'blue' ? 'border-blue-500 bg-blue-500/10' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/30 hover:border-slate-300 dark:hover:border-white/20'"
           >
-            <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center justify-between mb-3 preserve-palette">
               <span class="text-xs font-bold text-slate-900 dark:text-white">Titanium Blue</span>
-              <div class="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center text-white" v-if="form.themeColor === 'blue'">
+              <div class="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center text-white preserve-palette" v-if="form.themeColor === 'blue'">
                 <Check class="w-3 h-3" />
               </div>
             </div>
-            <div class="h-8 rounded-xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 shadow-sm"></div>
+            <div class="h-8 rounded-xl bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 shadow-sm preserve-palette"></div>
           </div>
 
           <!-- Emerald -->
           <div 
             @click="selectThemeColor('emerald')"
-            class="p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between"
+            class="preserve-palette p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between"
             :class="form.themeColor === 'emerald' ? 'border-emerald-500 bg-emerald-500/10' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/30 hover:border-slate-300 dark:hover:border-white/20'"
           >
-            <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center justify-between mb-3 preserve-palette">
               <span class="text-xs font-bold text-slate-900 dark:text-white">Emerald Green</span>
-              <div class="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white" v-if="form.themeColor === 'emerald'">
+              <div class="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white preserve-palette" v-if="form.themeColor === 'emerald'">
                 <Check class="w-3 h-3" />
               </div>
             </div>
-            <div class="h-8 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 shadow-sm"></div>
+            <div class="h-8 rounded-xl bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-400 shadow-sm preserve-palette"></div>
           </div>
 
           <!-- Copper -->
           <div 
             @click="selectThemeColor('copper')"
-            class="p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between"
+            class="preserve-palette p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between"
             :class="form.themeColor === 'copper' ? 'border-orange-500 bg-orange-500/10' : 'border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/30 hover:border-slate-300 dark:hover:border-white/20'"
           >
-            <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center justify-between mb-3 preserve-palette">
               <span class="text-xs font-bold text-slate-900 dark:text-white">Royal Copper</span>
-              <div class="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center text-white" v-if="form.themeColor === 'copper'">
+              <div class="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center text-white preserve-palette" v-if="form.themeColor === 'copper'">
                 <Check class="w-3 h-3" />
               </div>
             </div>
-            <div class="h-8 rounded-xl bg-gradient-to-r from-orange-600 via-amber-700 to-amber-500 shadow-sm"></div>
+            <div class="h-8 rounded-xl bg-gradient-to-r from-orange-600 via-amber-700 to-amber-500 shadow-sm preserve-palette"></div>
           </div>
         </div>
       </div>

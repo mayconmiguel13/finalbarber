@@ -113,10 +113,13 @@ const loadingPublicData = ref(false);
 async function loadPublicData() {
   loadingPublicData.value = true;
   try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const orgTarget = urlParams.get('org') || 'public';
+
     const [srvRes, brbRes, setRes] = await Promise.all([
       fetch('/api/services/public').catch(() => null),
       fetch('/api/barbers/public').catch(() => null),
-      fetch('/api/settings/org_y6c0a0ji').catch(() => null),
+      fetch(`/api/settings/${orgTarget}`).catch(() => null),
     ]);
 
     if (setRes && setRes.ok) {
@@ -126,6 +129,10 @@ async function loadPublicData() {
         if (!setData.onlinePaymentEnabled) {
           payOnlineWithDiscount.value = false;
         }
+      }
+      if (setData.themeColor) {
+        document.documentElement.setAttribute('data-accent', setData.themeColor);
+        localStorage.setItem('barber_accent_color', setData.themeColor);
       }
     }
 
@@ -364,6 +371,9 @@ onMounted(() => {
     isDark.value = true;
     document.documentElement.classList.add('dark');
   }
+
+  const savedAccent = localStorage.getItem('barber_accent_color') || 'gold';
+  document.documentElement.setAttribute('data-accent', savedAccent);
 
   if (localStorage.getItem('barber_user_session') === 'true') {
     isAuthenticated.value = true;

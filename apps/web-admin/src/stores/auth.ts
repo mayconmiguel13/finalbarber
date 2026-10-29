@@ -114,6 +114,22 @@ export const useAuthStore = defineStore('auth', () => {
         organization.value = data.organization;
         localStorage.setItem('barber_user', JSON.stringify(data.user));
         localStorage.setItem('barber_org', JSON.stringify(data.organization));
+
+        if (data.organization?.themeColor) {
+          localStorage.setItem('barber_accent_color', data.organization.themeColor);
+          document.documentElement.setAttribute('data-accent', data.organization.themeColor);
+        }
+        if (data.organization?.themeMode) {
+          localStorage.setItem('barber_theme_mode', data.organization.themeMode);
+          if (data.organization.themeMode === 'light') {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.classList.add('light');
+          } else {
+            document.documentElement.classList.add('dark');
+            document.documentElement.classList.remove('light');
+          }
+        }
+
         return data;
       } else if (res.status === 401) {
         logout();

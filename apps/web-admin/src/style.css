@@ -9,8 +9,8 @@
   --primary-light: rgba(217, 119, 6, 0.12);
   --primary-border: rgba(217, 119, 6, 0.3);
   --primary-glow: rgba(217, 119, 6, 0.25);
-  --gradient-from: #D97706;
-  --gradient-to: #92400E;
+  --gradient-from: #F59E0B;
+  --gradient-to: #B45309;
 }
 
 body {
@@ -23,15 +23,360 @@ body {
   font-feature-settings: "tnum" 1;
 }
 
+/* ======================================================== */
+/* DYNAMIC BRAND THEME ENGINE (Gold, Blue, Emerald, Copper) */
+/* ======================================================== */
+
 .bg-brand { background-color: var(--primary) !important; }
+.hover\:bg-brand-hover:hover { background-color: var(--primary-hover) !important; }
 .bg-brand-light { background-color: var(--primary-light) !important; }
 .text-brand { color: var(--primary) !important; }
 .border-brand { border-color: var(--primary) !important; }
 .border-brand-subtle { border-color: var(--primary-border) !important; }
 .shadow-brand { box-shadow: 0 8px 25px -4px var(--primary-glow) !important; }
+.shadow-brand-sm { box-shadow: 0 4px 15px -2px var(--primary-glow) !important; }
+.ring-brand { --tw-ring-color: var(--primary) !important; }
+.accent-brand { accent-color: var(--primary) !important; }
 
-.brand-gradient {
+.btn-brand, .brand-gradient {
   background: linear-gradient(135deg, var(--gradient-from), var(--gradient-to)) !important;
+  color: #07090e !important;
+  font-weight: 800 !important;
+  box-shadow: 0 8px 25px -4px var(--primary-glow) !important;
+  transition: all 0.2s ease !important;
+}
+.btn-brand:hover {
+  opacity: 0.95 !important;
+  transform: translateY(-1px) !important;
+}
+
+/* BLUE THEME (Azul Cobalto) */
+html[data-accent="blue"] {
+  --primary: #2563EB;
+  --primary-hover: #1D4ED8;
+  --primary-light: rgba(37, 99, 235, 0.12);
+  --primary-border: rgba(37, 99, 235, 0.3);
+  --primary-glow: rgba(37, 99, 235, 0.25);
+  --gradient-from: #3B82F6;
+  --gradient-to: #1D4ED8;
+}
+
+html[data-accent="blue"] .text-amber-300:not(.preserve-palette),
+html[data-accent="blue"] .text-amber-400:not(.preserve-palette) {
+  color: #60a5fa !important;
+}
+html[data-accent="blue"] .text-amber-500:not(.preserve-palette),
+html[data-accent="blue"] .text-amber-600:not(.preserve-palette) {
+  color: #3b82f6 !important;
+}
+html[data-accent="blue"] .bg-amber-400:not(.preserve-palette) {
+  background-color: #60a5fa !important;
+}
+html[data-accent="blue"] .bg-amber-500:not(.preserve-palette) {
+  background-color: #2563eb !important;
+}
+html[data-accent="blue"] .hover\:bg-amber-400:hover:not(.preserve-palette),
+html[data-accent="blue"] .hover\:bg-amber-500:hover:not(.preserve-palette) {
+  background-color: #1d4ed8 !important;
+}
+html[data-accent="blue"] .bg-amber-500\/5:not(.preserve-palette) {
+  background-color: rgba(37, 99, 235, 0.05) !important;
+}
+html[data-accent="blue"] .bg-amber-500\/10:not(.preserve-palette) {
+  background-color: rgba(37, 99, 235, 0.10) !important;
+}
+html[data-accent="blue"] .bg-amber-500\/15:not(.preserve-palette) {
+  background-color: rgba(37, 99, 235, 0.15) !important;
+}
+html[data-accent="blue"] .bg-amber-500\/20:not(.preserve-palette) {
+  background-color: rgba(37, 99, 235, 0.20) !important;
+}
+html[data-accent="blue"] .bg-amber-500\/25:not(.preserve-palette),
+html[data-accent="blue"] .bg-amber-500\/30:not(.preserve-palette) {
+  background-color: rgba(37, 99, 235, 0.25) !important;
+}
+html[data-accent="blue"] .border-amber-400:not(.preserve-palette),
+html[data-accent="blue"] .border-amber-500:not(.preserve-palette) {
+  border-color: #3b82f6 !important;
+}
+html[data-accent="blue"] .border-amber-500\/15:not(.preserve-palette),
+html[data-accent="blue"] .border-amber-500\/20:not(.preserve-palette),
+html[data-accent="blue"] .border-amber-500\/25:not(.preserve-palette),
+html[data-accent="blue"] .border-amber-500\/30:not(.preserve-palette),
+html[data-accent="blue"] .border-amber-500\/35:not(.preserve-palette),
+html[data-accent="blue"] .border-amber-500\/40:not(.preserve-palette) {
+  border-color: rgba(37, 99, 235, 0.35) !important;
+}
+html[data-accent="blue"] .shadow-amber-500\/10:not(.preserve-palette),
+html[data-accent="blue"] .shadow-amber-500\/20:not(.preserve-palette),
+html[data-accent="blue"] .shadow-amber-500\/25:not(.preserve-palette),
+html[data-accent="blue"] .shadow-amber-500\/30:not(.preserve-palette) {
+  box-shadow: 0 8px 25px -4px rgba(37, 99, 235, 0.35) !important;
+}
+html[data-accent="blue"] .from-amber-500:not(.preserve-palette),
+html[data-accent="blue"] .from-amber-400:not(.preserve-palette) {
+  --tw-gradient-from: #3b82f6 var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(59 130 246 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+html[data-accent="blue"] .via-amber-400:not(.preserve-palette),
+html[data-accent="blue"] .via-amber-500:not(.preserve-palette) {
+  --tw-gradient-to: rgb(37 99 235 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #2563eb var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+html[data-accent="blue"] .to-amber-500:not(.preserve-palette),
+html[data-accent="blue"] .to-amber-600:not(.preserve-palette) {
+  --tw-gradient-to: #1d4ed8 var(--tw-gradient-to-position) !important;
+}
+html[data-accent="blue"] .ring-amber-500:not(.preserve-palette) {
+  --tw-ring-color: #3b82f6 !important;
+}
+html[data-accent="blue"] .accent-amber-500:not(.preserve-palette) {
+  accent-color: #2563eb !important;
+}
+html[data-accent="blue"] .focus\:border-amber-500:focus:not(.preserve-palette) {
+  border-color: #3b82f6 !important;
+}
+html[data-accent="blue"] input:checked ~ div.peer-checked\:bg-amber-500,
+html[data-accent="blue"] input:checked + div,
+html[data-accent="blue"] .peer:checked ~ div {
+  background-color: #2563eb !important;
+}
+html[data-accent="blue"] .bg-amber-500.text-black:not(.preserve-palette),
+html[data-accent="blue"] .bg-amber-500.text-slate-950:not(.preserve-palette),
+html[data-accent="blue"] .bg-amber-400.text-black:not(.preserve-palette),
+html[data-accent="blue"] .btn-brand {
+  color: #ffffff !important;
+}
+
+/* EMERALD THEME (Esmeralda Nobre) */
+html[data-accent="emerald"] {
+  --primary: #059669;
+  --primary-hover: #047857;
+  --primary-light: rgba(5, 150, 105, 0.12);
+  --primary-border: rgba(5, 150, 105, 0.3);
+  --primary-glow: rgba(5, 150, 105, 0.25);
+  --gradient-from: #10B981;
+  --gradient-to: #047857;
+}
+
+html[data-accent="emerald"] .text-amber-300:not(.preserve-palette),
+html[data-accent="emerald"] .text-amber-400:not(.preserve-palette) {
+  color: #34d399 !important;
+}
+html[data-accent="emerald"] .text-amber-500:not(.preserve-palette),
+html[data-accent="emerald"] .text-amber-600:not(.preserve-palette) {
+  color: #10b981 !important;
+}
+html[data-accent="emerald"] .bg-amber-400:not(.preserve-palette) {
+  background-color: #34d399 !important;
+}
+html[data-accent="emerald"] .bg-amber-500:not(.preserve-palette) {
+  background-color: #059669 !important;
+}
+html[data-accent="emerald"] .hover\:bg-amber-400:hover:not(.preserve-palette),
+html[data-accent="emerald"] .hover\:bg-amber-500:hover:not(.preserve-palette) {
+  background-color: #047857 !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/5:not(.preserve-palette) {
+  background-color: rgba(5, 150, 105, 0.05) !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/10:not(.preserve-palette) {
+  background-color: rgba(5, 150, 105, 0.10) !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/15:not(.preserve-palette) {
+  background-color: rgba(5, 150, 105, 0.15) !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/20:not(.preserve-palette) {
+  background-color: rgba(5, 150, 105, 0.20) !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/25:not(.preserve-palette),
+html[data-accent="emerald"] .bg-amber-500\/30:not(.preserve-palette) {
+  background-color: rgba(5, 150, 105, 0.25) !important;
+}
+html[data-accent="emerald"] .border-amber-400:not(.preserve-palette),
+html[data-accent="emerald"] .border-amber-500:not(.preserve-palette) {
+  border-color: #10b981 !important;
+}
+html[data-accent="emerald"] .border-amber-500\/15:not(.preserve-palette),
+html[data-accent="emerald"] .border-amber-500\/20:not(.preserve-palette),
+html[data-accent="emerald"] .border-amber-500\/25:not(.preserve-palette),
+html[data-accent="emerald"] .border-amber-500\/30:not(.preserve-palette),
+html[data-accent="emerald"] .border-amber-500\/35:not(.preserve-palette),
+html[data-accent="emerald"] .border-amber-500\/40:not(.preserve-palette) {
+  border-color: rgba(5, 150, 105, 0.35) !important;
+}
+html[data-accent="emerald"] .shadow-amber-500\/10:not(.preserve-palette),
+html[data-accent="emerald"] .shadow-amber-500\/20:not(.preserve-palette),
+html[data-accent="emerald"] .shadow-amber-500\/25:not(.preserve-palette),
+html[data-accent="emerald"] .shadow-amber-500\/30:not(.preserve-palette) {
+  box-shadow: 0 8px 25px -4px rgba(5, 150, 105, 0.35) !important;
+}
+html[data-accent="emerald"] .from-amber-500:not(.preserve-palette),
+html[data-accent="emerald"] .from-amber-400:not(.preserve-palette) {
+  --tw-gradient-from: #10b981 var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(16 185 129 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+html[data-accent="emerald"] .via-amber-400:not(.preserve-palette),
+html[data-accent="emerald"] .via-amber-500:not(.preserve-palette) {
+  --tw-gradient-to: rgb(5 150 105 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #059669 var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+html[data-accent="emerald"] .to-amber-500:not(.preserve-palette),
+html[data-accent="emerald"] .to-amber-600:not(.preserve-palette) {
+  --tw-gradient-to: #047857 var(--tw-gradient-to-position) !important;
+}
+html[data-accent="emerald"] .ring-amber-500:not(.preserve-palette) {
+  --tw-ring-color: #10b981 !important;
+}
+html[data-accent="emerald"] .accent-amber-500:not(.preserve-palette) {
+  accent-color: #059669 !important;
+}
+html[data-accent="emerald"] .focus\:border-amber-500:focus:not(.preserve-palette) {
+  border-color: #10b981 !important;
+}
+html[data-accent="emerald"] input:checked ~ div.peer-checked\:bg-amber-500,
+html[data-accent="emerald"] input:checked + div,
+html[data-accent="emerald"] .peer:checked ~ div {
+  background-color: #059669 !important;
+}
+html[data-accent="emerald"] .bg-amber-500.text-black:not(.preserve-palette),
+html[data-accent="emerald"] .bg-amber-500.text-slate-950:not(.preserve-palette),
+html[data-accent="emerald"] .bg-amber-400.text-black:not(.preserve-palette),
+html[data-accent="emerald"] .btn-brand {
+  color: #ffffff !important;
+}
+
+/* COPPER THEME (Bronze & Cobre) */
+html[data-accent="copper"] {
+  --primary: #EA580C;
+  --primary-hover: #C2410C;
+  --primary-light: rgba(234, 88, 12, 0.12);
+  --primary-border: rgba(234, 88, 12, 0.3);
+  --primary-glow: rgba(234, 88, 12, 0.25);
+  --gradient-from: #F97316;
+  --gradient-to: #C2410C;
+}
+
+html[data-accent="copper"] .text-amber-300:not(.preserve-palette),
+html[data-accent="copper"] .text-amber-400:not(.preserve-palette) {
+  color: #fb923c !important;
+}
+html[data-accent="copper"] .text-amber-500:not(.preserve-palette),
+html[data-accent="copper"] .text-amber-600:not(.preserve-palette) {
+  color: #f97316 !important;
+}
+html[data-accent="copper"] .bg-amber-400:not(.preserve-palette) {
+  background-color: #fb923c !important;
+}
+html[data-accent="copper"] .bg-amber-500:not(.preserve-palette) {
+  background-color: #ea580c !important;
+}
+html[data-accent="copper"] .hover\:bg-amber-400:hover:not(.preserve-palette),
+html[data-accent="copper"] .hover\:bg-amber-500:hover:not(.preserve-palette) {
+  background-color: #c2410c !important;
+}
+html[data-accent="copper"] .bg-amber-500\/5:not(.preserve-palette) {
+  background-color: rgba(234, 88, 12, 0.05) !important;
+}
+html[data-accent="copper"] .bg-amber-500\/10:not(.preserve-palette) {
+  background-color: rgba(234, 88, 12, 0.10) !important;
+}
+html[data-accent="copper"] .bg-amber-500\/15:not(.preserve-palette) {
+  background-color: rgba(234, 88, 12, 0.15) !important;
+}
+html[data-accent="copper"] .bg-amber-500\/20:not(.preserve-palette) {
+  background-color: rgba(234, 88, 12, 0.20) !important;
+}
+html[data-accent="copper"] .bg-amber-500\/25:not(.preserve-palette),
+html[data-accent="copper"] .bg-amber-500\/30:not(.preserve-palette) {
+  background-color: rgba(234, 88, 12, 0.25) !important;
+}
+html[data-accent="copper"] .border-amber-400:not(.preserve-palette),
+html[data-accent="copper"] .border-amber-500:not(.preserve-palette) {
+  border-color: #f97316 !important;
+}
+html[data-accent="copper"] .border-amber-500\/15:not(.preserve-palette),
+html[data-accent="copper"] .border-amber-500\/20:not(.preserve-palette),
+html[data-accent="copper"] .border-amber-500\/25:not(.preserve-palette),
+html[data-accent="copper"] .border-amber-500\/30:not(.preserve-palette),
+html[data-accent="copper"] .border-amber-500\/35:not(.preserve-palette),
+html[data-accent="copper"] .border-amber-500\/40:not(.preserve-palette) {
+  border-color: rgba(234, 88, 12, 0.35) !important;
+}
+html[data-accent="copper"] .shadow-amber-500\/10:not(.preserve-palette),
+html[data-accent="copper"] .shadow-amber-500\/20:not(.preserve-palette),
+html[data-accent="copper"] .shadow-amber-500\/25:not(.preserve-palette),
+html[data-accent="copper"] .shadow-amber-500\/30:not(.preserve-palette) {
+  box-shadow: 0 8px 25px -4px rgba(234, 88, 12, 0.35) !important;
+}
+html[data-accent="copper"] .from-amber-500:not(.preserve-palette),
+html[data-accent="copper"] .from-amber-400:not(.preserve-palette) {
+  --tw-gradient-from: #f97316 var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(249 115 22 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+html[data-accent="copper"] .via-amber-400:not(.preserve-palette),
+html[data-accent="copper"] .via-amber-500:not(.preserve-palette) {
+  --tw-gradient-to: rgb(234 88 12 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #ea580c var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+html[data-accent="copper"] .to-amber-500:not(.preserve-palette),
+html[data-accent="copper"] .to-amber-600:not(.preserve-palette) {
+  --tw-gradient-to: #c2410c var(--tw-gradient-to-position) !important;
+}
+html[data-accent="copper"] .ring-amber-500:not(.preserve-palette) {
+  --tw-ring-color: #f97316 !important;
+}
+html[data-accent="copper"] .accent-amber-500:not(.preserve-palette) {
+  accent-color: #ea580c !important;
+}
+html[data-accent="copper"] .focus\:border-amber-500:focus:not(.preserve-palette) {
+  border-color: #f97316 !important;
+}
+html[data-accent="copper"] input:checked ~ div.peer-checked\:bg-amber-500,
+html[data-accent="copper"] input:checked + div,
+html[data-accent="copper"] .peer:checked ~ div {
+  background-color: #ea580c !important;
+}
+html[data-accent="copper"] .bg-amber-500.text-black:not(.preserve-palette),
+html[data-accent="copper"] .bg-amber-500.text-slate-950:not(.preserve-palette),
+html[data-accent="copper"] .bg-amber-400.text-black:not(.preserve-palette),
+html[data-accent="copper"] .btn-brand {
+  color: #ffffff !important;
+}
+
+/* ======================================================== */
+/* PRESERVE PALETTE SWATCHES IN SETTINGS PREVIEW CARDS      */
+/* ======================================================== */
+.preserve-palette.from-amber-500,
+.preserve-palette .from-amber-500 {
+  --tw-gradient-from: #f59e0b var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(245 158 11 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+.preserve-palette.via-amber-400,
+.preserve-palette .via-amber-400 {
+  --tw-gradient-to: rgb(245 158 11 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), #fbbf24 var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+.preserve-palette.to-amber-600,
+.preserve-palette .to-amber-600 {
+  --tw-gradient-to: #d97706 var(--tw-gradient-to-position) !important;
+}
+.preserve-palette.bg-amber-400,
+.preserve-palette .bg-amber-400 {
+  background-color: #fbbf24 !important;
+  color: #000000 !important;
+}
+.preserve-palette.border-amber-500,
+.preserve-palette .border-amber-500 {
+  border-color: #f59e0b !important;
+}
+.preserve-palette.bg-amber-500\/10,
+.preserve-palette .bg-amber-500\/10 {
+  background-color: rgba(245, 158, 11, 0.1) !important;
 }
 
 .soft-card-shadow {

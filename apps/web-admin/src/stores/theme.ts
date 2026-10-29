@@ -47,13 +47,13 @@ export const colorPresets: Record<AccentColor, ColorPreset> = {
   },
   copper: {
     name: 'Bronze & Cobre',
-    primary: '#E11D48',
-    hover: '#BE123C',
-    light: 'rgba(225, 29, 72, 0.12)',
-    border: 'rgba(225, 29, 72, 0.3)',
-    glow: 'rgba(225, 29, 72, 0.25)',
-    from: '#E11D48',
-    to: '#9F1239',
+    primary: '#EA580C',
+    hover: '#C2410C',
+    light: 'rgba(234, 88, 12, 0.12)',
+    border: 'rgba(234, 88, 12, 0.3)',
+    glow: 'rgba(234, 88, 12, 0.25)',
+    from: '#F97316',
+    to: '#C2410C',
   },
 };
 
@@ -70,6 +70,8 @@ export const useThemeStore = defineStore('theme', () => {
       root.classList.remove('dark');
       root.classList.add('light');
     }
+
+    root.setAttribute('data-accent', currentAccent.value);
 
     const preset = colorPresets[currentAccent.value];
     if (preset) {

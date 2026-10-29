@@ -104,9 +104,21 @@ export async function settingsRoutes(app: FastifyInstance) {
     const { orgId } = request.params;
 
     try {
-      const org = await prisma.organization.findUnique({
+      let org = await prisma.organization.findUnique({
         where: { id: orgId },
       });
+
+      if (!org) {
+        org = await prisma.organization.findUnique({
+          where: { slug: orgId },
+        });
+      }
+
+      if (!org && (orgId === 'public' || orgId === 'default' || orgId.startsWith('org_') || orgId.startsWith('org-'))) {
+        org = await prisma.organization.findFirst({
+          orderBy: { createdAt: 'asc' },
+        });
+      }
 
       if (!org) {
         return reply.status(404).send({ error: 'Organização não encontrada.' });

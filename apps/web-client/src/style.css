@@ -36,3 +36,268 @@ body {
 .soft-card-shadow {
   box-shadow: 0 4px 25px -2px rgba(0, 0, 0, 0.4);
 }
+
+/* ======================================================== */
+/* DYNAMIC BRAND THEME ENGINE (Gold, Blue, Emerald, Copper) */
+/* ======================================================== */
+
+/* BLUE THEME (Azul Cobalto) */
+html[data-accent="blue"] {
+  --primary: #2563EB;
+  --primary-hover: #1D4ED8;
+  --primary-light: rgba(37, 99, 235, 0.12);
+  --primary-border: rgba(37, 99, 235, 0.3);
+  --primary-glow: rgba(37, 99, 235, 0.25);
+  --gradient-from: #3B82F6;
+  --gradient-to: #1D4ED8;
+}
+
+html[data-accent="blue"] .text-amber-300,
+html[data-accent="blue"] .text-amber-400 {
+  color: #60a5fa !important;
+}
+html[data-accent="blue"] .text-amber-500,
+html[data-accent="blue"] .text-amber-600 {
+  color: #3b82f6 !important;
+}
+html[data-accent="blue"] .fill-amber-400,
+html[data-accent="blue"] .fill-amber-500 {
+  fill: #60a5fa !important;
+}
+html[data-accent="blue"] .bg-amber-400 {
+  background-color: #60a5fa !important;
+}
+html[data-accent="blue"] .bg-amber-500 {
+  background-color: #2563eb !important;
+}
+html[data-accent="blue"] .hover\:bg-amber-400:hover,
+html[data-accent="blue"] .hover\:bg-amber-500:hover {
+  background-color: #1d4ed8 !important;
+}
+html[data-accent="blue"] .hover\:text-amber-500:hover {
+  color: #3b82f6 !important;
+}
+html[data-accent="blue"] .bg-amber-500\/5 {
+  background-color: rgba(37, 99, 235, 0.05) !important;
+}
+html[data-accent="blue"] .bg-amber-500\/10 {
+  background-color: rgba(37, 99, 235, 0.10) !important;
+}
+html[data-accent="blue"] .bg-amber-500\/15 {
+  background-color: rgba(37, 99, 235, 0.15) !important;
+}
+html[data-accent="blue"] .bg-amber-500\/20 {
+  background-color: rgba(37, 99, 235, 0.20) !important;
+}
+html[data-accent="blue"] .bg-amber-500\/30,
+html[data-accent="blue"] .bg-amber-500\/40 {
+  background-color: rgba(37, 99, 235, 0.35) !important;
+}
+html[data-accent="blue"] .border-amber-400,
+html[data-accent="blue"] .border-amber-500 {
+  border-color: #3b82f6 !important;
+}
+html[data-accent="blue"] .border-amber-500\/20,
+html[data-accent="blue"] .border-amber-500\/30,
+html[data-accent="blue"] .border-amber-500\/40 {
+  border-color: rgba(37, 99, 235, 0.35) !important;
+}
+html[data-accent="blue"] .shadow-amber-500\/20,
+html[data-accent="blue"] .shadow-amber-500\/25,
+html[data-accent="blue"] .shadow-amber-500\/30 {
+  box-shadow: 0 8px 25px -4px rgba(37, 99, 235, 0.35) !important;
+}
+html[data-accent="blue"] .from-amber-500\/10,
+html[data-accent="blue"] .from-amber-500\/15 {
+  --tw-gradient-from: rgba(37, 99, 235, 0.15) var(--tw-gradient-from-position) !important;
+}
+html[data-accent="blue"] .ring-amber-500 {
+  --tw-ring-color: #3b82f6 !important;
+}
+html[data-accent="blue"] .ring-amber-500\/10,
+html[data-accent="blue"] .ring-amber-500\/40 {
+  --tw-ring-color: rgba(37, 99, 235, 0.4) !important;
+}
+html[data-accent="blue"] .focus\:ring-amber-500:focus,
+html[data-accent="blue"] .focus\:border-amber-500:focus {
+  border-color: #3b82f6 !important;
+  --tw-ring-color: #3b82f6 !important;
+}
+html[data-accent="blue"] .bg-amber-500.text-slate-950,
+html[data-accent="blue"] .bg-amber-500.text-black {
+  color: #ffffff !important;
+}
+
+/* EMERALD THEME (Esmeralda Nobre) */
+html[data-accent="emerald"] {
+  --primary: #059669;
+  --primary-hover: #047857;
+  --primary-light: rgba(5, 150, 105, 0.12);
+  --primary-border: rgba(5, 150, 105, 0.3);
+  --primary-glow: rgba(5, 150, 105, 0.25);
+  --gradient-from: #10B981;
+  --gradient-to: #047857;
+}
+
+html[data-accent="emerald"] .text-amber-300,
+html[data-accent="emerald"] .text-amber-400 {
+  color: #34d399 !important;
+}
+html[data-accent="emerald"] .text-amber-500,
+html[data-accent="emerald"] .text-amber-600 {
+  color: #10b981 !important;
+}
+html[data-accent="emerald"] .fill-amber-400,
+html[data-accent="emerald"] .fill-amber-500 {
+  fill: #34d399 !important;
+}
+html[data-accent="emerald"] .bg-amber-400 {
+  background-color: #34d399 !important;
+}
+html[data-accent="emerald"] .bg-amber-500 {
+  background-color: #059669 !important;
+}
+html[data-accent="emerald"] .hover\:bg-amber-400:hover,
+html[data-accent="emerald"] .hover\:bg-amber-500:hover {
+  background-color: #047857 !important;
+}
+html[data-accent="emerald"] .hover\:text-amber-500:hover {
+  color: #10b981 !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/5 {
+  background-color: rgba(5, 150, 105, 0.05) !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/10 {
+  background-color: rgba(5, 150, 105, 0.10) !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/15 {
+  background-color: rgba(5, 150, 105, 0.15) !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/20 {
+  background-color: rgba(5, 150, 105, 0.20) !important;
+}
+html[data-accent="emerald"] .bg-amber-500\/30,
+html[data-accent="emerald"] .bg-amber-500\/40 {
+  background-color: rgba(5, 150, 105, 0.35) !important;
+}
+html[data-accent="emerald"] .border-amber-400,
+html[data-accent="emerald"] .border-amber-500 {
+  border-color: #10b981 !important;
+}
+html[data-accent="emerald"] .border-amber-500\/20,
+html[data-accent="emerald"] .border-amber-500\/30,
+html[data-accent="emerald"] .border-amber-500\/40 {
+  border-color: rgba(5, 150, 105, 0.35) !important;
+}
+html[data-accent="emerald"] .shadow-amber-500\/20,
+html[data-accent="emerald"] .shadow-amber-500\/25,
+html[data-accent="emerald"] .shadow-amber-500\/30 {
+  box-shadow: 0 8px 25px -4px rgba(5, 150, 105, 0.35) !important;
+}
+html[data-accent="emerald"] .from-amber-500\/10,
+html[data-accent="emerald"] .from-amber-500\/15 {
+  --tw-gradient-from: rgba(5, 150, 105, 0.15) var(--tw-gradient-from-position) !important;
+}
+html[data-accent="emerald"] .ring-amber-500 {
+  --tw-ring-color: #10b981 !important;
+}
+html[data-accent="emerald"] .ring-amber-500\/10,
+html[data-accent="emerald"] .ring-amber-500\/40 {
+  --tw-ring-color: rgba(5, 150, 105, 0.4) !important;
+}
+html[data-accent="emerald"] .focus\:ring-amber-500:focus,
+html[data-accent="emerald"] .focus\:border-amber-500:focus {
+  border-color: #10b981 !important;
+  --tw-ring-color: #10b981 !important;
+}
+html[data-accent="emerald"] .bg-amber-500.text-slate-950,
+html[data-accent="emerald"] .bg-amber-500.text-black {
+  color: #ffffff !important;
+}
+
+/* COPPER THEME (Bronze & Cobre) */
+html[data-accent="copper"] {
+  --primary: #EA580C;
+  --primary-hover: #C2410C;
+  --primary-light: rgba(234, 88, 12, 0.12);
+  --primary-border: rgba(234, 88, 12, 0.3);
+  --primary-glow: rgba(234, 88, 12, 0.25);
+  --gradient-from: #F97316;
+  --gradient-to: #C2410C;
+}
+
+html[data-accent="copper"] .text-amber-300,
+html[data-accent="copper"] .text-amber-400 {
+  color: #fb923c !important;
+}
+html[data-accent="copper"] .text-amber-500,
+html[data-accent="copper"] .text-amber-600 {
+  color: #f97316 !important;
+}
+html[data-accent="copper"] .fill-amber-400,
+html[data-accent="copper"] .fill-amber-500 {
+  fill: #fb923c !important;
+}
+html[data-accent="copper"] .bg-amber-400 {
+  background-color: #fb923c !important;
+}
+html[data-accent="copper"] .bg-amber-500 {
+  background-color: #ea580c !important;
+}
+html[data-accent="copper"] .hover\:bg-amber-400:hover,
+html[data-accent="copper"] .hover\:bg-amber-500:hover {
+  background-color: #c2410c !important;
+}
+html[data-accent="copper"] .hover\:text-amber-500:hover {
+  color: #f97316 !important;
+}
+html[data-accent="copper"] .bg-amber-500\/5 {
+  background-color: rgba(234, 88, 12, 0.05) !important;
+}
+html[data-accent="copper"] .bg-amber-500\/10 {
+  background-color: rgba(234, 88, 12, 0.10) !important;
+}
+html[data-accent="copper"] .bg-amber-500\/15 {
+  background-color: rgba(234, 88, 12, 0.15) !important;
+}
+html[data-accent="copper"] .bg-amber-500\/20 {
+  background-color: rgba(234, 88, 12, 0.20) !important;
+}
+html[data-accent="copper"] .bg-amber-500\/30,
+html[data-accent="copper"] .bg-amber-500\/40 {
+  background-color: rgba(234, 88, 12, 0.35) !important;
+}
+html[data-accent="copper"] .border-amber-400,
+html[data-accent="copper"] .border-amber-500 {
+  border-color: #f97316 !important;
+}
+html[data-accent="copper"] .border-amber-500\/20,
+html[data-accent="copper"] .border-amber-500\/30,
+html[data-accent="copper"] .border-amber-500\/40 {
+  border-color: rgba(234, 88, 12, 0.35) !important;
+}
+html[data-accent="copper"] .shadow-amber-500\/20,
+html[data-accent="copper"] .shadow-amber-500\/25,
+html[data-accent="copper"] .shadow-amber-500\/30 {
+  box-shadow: 0 8px 25px -4px rgba(234, 88, 12, 0.35) !important;
+}
+html[data-accent="copper"] .from-amber-500\/10,
+html[data-accent="copper"] .from-amber-500\/15 {
+  --tw-gradient-from: rgba(234, 88, 12, 0.15) var(--tw-gradient-from-position) !important;
+}
+html[data-accent="copper"] .ring-amber-500 {
+  --tw-ring-color: #f97316 !important;
+}
+html[data-accent="copper"] .ring-amber-500\/10,
+html[data-accent="copper"] .ring-amber-500\/40 {
+  --tw-ring-color: rgba(234, 88, 12, 0.4) !important;
+}
+html[data-accent="copper"] .focus\:ring-amber-500:focus,
+html[data-accent="copper"] .focus\:border-amber-500:focus {
+  border-color: #f97316 !important;
+  --tw-ring-color: #f97316 !important;
+}
+html[data-accent="copper"] .bg-amber-500.text-slate-950,
+html[data-accent="copper"] .bg-amber-500.text-black {
+  color: #ffffff !important;
+}
