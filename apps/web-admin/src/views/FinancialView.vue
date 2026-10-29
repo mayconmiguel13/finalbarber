@@ -36,7 +36,9 @@ import {
   ChevronUp,
   AlertCircle,
   CalendarClock,
-  PieChart
+  PieChart,
+  Printer,
+  Calendar
 } from 'lucide-vue-next';
 import { 
   api, 
@@ -51,7 +53,7 @@ import { useToastStore } from '../stores/toast';
 
 const toast = useToastStore();
 
-// Web Audio sound effect
+// ================= AUDIO EFFECTS =================
 function playPopSound() {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -88,6 +90,13 @@ function playSuccessSound() {
   } catch (e) {}
 }
 
+// ================= NAVEGAÇÃO DE ABAS =================
+const activeFinancialTab = ref<'ENTRIES' | 'DRE' | 'PAYABLES'>('ENTRIES');
+function setFinancialTab(tab: 'ENTRIES' | 'DRE' | 'PAYABLES') {
+  playPopSound();
+  activeFinancialTab.value = tab;
+}
+
 // ================= MODOS DE VISUALIZAÇÃO (CARDS vs LISTA) =================
 const entryViewMode = ref<'CARDS' | 'LIST'>(
   (localStorage.getItem('barbly_entry_view') as 'CARDS' | 'LIST') || 'LIST'
@@ -98,14 +107,7 @@ function setEntryViewMode(mode: 'CARDS' | 'LIST') {
   localStorage.setItem('barbly_entry_view', mode);
 }
 
-// ================= PILARES EXECUTIVOS: DRE, STATUS & CONCILIAÇÃO =================
-const isDreOpen = ref(true);
-function toggleDre() {
-  playPopSound();
-  isDreOpen.value = !isDreOpen.value;
-}
-
-// Filtro de Status de Pagamento (Pilar 4)
+// ================= FILTRO DE STATUS (LIVRO CAIXA) =================
 const entryStatusFilter = ref<'ALL' | 'PAID' | 'PENDING' | 'OVERDUE'>('ALL');
 
 // Helpers de Status e Vencimento
@@ -322,29 +324,15 @@ function exportToCsv() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.setAttribute('href', url);
-  link.setAttribute('download', `extrato_financeiro_${selectedPeriod.value.toLowerCase()}_${new Date().toISOString().split('T')[0]}.csv`);
+  link.setAttribute('download', `livro_caixa_${selectedPeriod.value.toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-
-  toast.success('Extrato contábil exportado em CSV com sucesso!', 'Exportação Concluída');
+  URL.revokeObjectURL(url);
+  toast.success('Relatório CSV exportado com sucesso!', 'Exportação Concluída');
 }
 
-// 1. Modal Novo Lançamento Financeiro
-const isEntryModalOpen = ref(false);
-const entryForm = reactive({
-  type: 'INCOME' as 'INCOME' | 'EXPENSE',
-  category: 'Serviço',
-  description: '',
-  amount: 50,
-  paymentMethod: 'PIX',
-  barberId: '',
-  barberCommission: 0,
-  status: 'PAID' as 'PAID' | 'PENDING',
-  dueDate: new Date().toISOString().split('T')[0]
-});
-
-// Modal de Detalhes do Lançamento
+// ================= MODAL DE DETALHES DO LANÇAMENTO =================
 const isDetailModalOpen = ref(false);
 const selectedEntryForDetail = ref<FinancialEntry | null>(null);
 
@@ -354,53 +342,81 @@ function openEntryDetail(entry: FinancialEntry) {
   isDetailModalOpen.value = true;
 }
 
-function printEntryDetail() {
+function closeEntryDetail() {
+  playPopSound();
+  isDetailModalOpen.value = false;
+  selectedEntryForDetail.value = null;
+}
+
+function copyTransactionId(id: string) {
+  playPopSound();
+  navigator.clipboard.writeText(id);
+  toast.success('ID da transação copiado!', 'Copiado');
+}
+
+function printDetailModal() {
   playPopSound();
   window.print();
 }
 
-async function copyEntryId(id: string) {
-  try {
-    await navigator.clipboard.writeText(id);
-    toast.success('ID do lançamento copiado!');
-  } catch {
-    toast.error('Não foi possível copiar o ID.');
-  }
+// ================= MODAL DE NOVO LANÇAMENTO (RECEITA / DESPESA) =================
+const isEntryModalOpen = ref(false);
+const entryForm = reactive({
+  type: 'INCOME' as 'INCOME' | 'EXPENSE',
+  category: 'CORTES',
+  description: '',
+  amount: '' as string | number,
+  paymentMethod: 'PIX',
+  barberId: '',
+  barberCommission: '' as string | number,
+  status: 'PAID' as 'PAID' | 'PENDING',
+  dueDate: ''
+});
+
+function openCreateEntryModal(type: 'INCOME' | 'EXPENSE' = 'INCOME') {
+  playPopSound();
+  entryForm.type = type;
+  entryForm.category = type === 'INCOME' ? 'CORTES' : 'ALUGUEL';
+  entryForm.description = '';
+  entryForm.amount = '';
+  entryForm.paymentMethod = 'PIX';
+  entryForm.barberId = '';
+  entryForm.barberCommission = '';
+  entryForm.status = 'PAID';
+  entryForm.dueDate = '';
+  isEntryModalOpen.value = true;
 }
 
-// Modal de Confirmação de Exclusão
+// ================= MODAL DE EXCLUSÃO =================
 const isDeleteModalOpen = ref(false);
 const deleteTargetId = ref<string | null>(null);
 const deleteTargetTitle = ref<string>('');
 
-// ================= FORMATAÇÃO =================
-function getPaymentMethodLabel(method?: string) {
-  if (!method) return 'Pix';
-  const m = method.toUpperCase();
-  if (m === 'PIX') return 'Pix Instantâneo';
-  if (m === 'CREDIT_CARD') return 'Cartão de Crédito';
-  if (m === 'DEBIT_CARD') return 'Cartão de Débito';
-  if (m === 'CASH') return 'Dinheiro em Espécie';
-  if (m === 'TRANSFER') return 'Transferência Bancária';
-  return method;
+function confirmDeleteEntry(id: string, description: string) {
+  playPopSound();
+  deleteTargetId.value = id;
+  deleteTargetTitle.value = description;
+  isDeleteModalOpen.value = true;
 }
 
-function formatMoney(value: number | string | undefined): string {
-  const num = Number(value) || 0;
-  return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-
-function formatDate(dateStr: string | undefined): string {
-  if (!dateStr) return '—';
+async function executeDeleteEntry() {
+  if (!deleteTargetId.value) return;
+  saving.value = true;
   try {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-  } catch {
-    return '—';
+    await api.deleteFinancialEntry(deleteTargetId.value);
+    playSuccessSound();
+    toast.success('Lançamento excluído com sucesso!', 'Exclusão Concluída');
+    isDeleteModalOpen.value = false;
+    deleteTargetId.value = null;
+    if (isDetailModalOpen.value) {
+      isDetailModalOpen.value = false;
+      selectedEntryForDetail.value = null;
+    }
+    await loadAllData();
+  } catch (err: any) {
+    toast.error(err.message || 'Erro ao excluir lançamento.', 'Falha');
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -408,147 +424,204 @@ function formatDate(dateStr: string | undefined): string {
 async function loadAllData() {
   loading.value = true;
   try {
-    const dateParams = getActiveDateRange();
-
-    const [summaryRes, entriesRes, splitsRes, barbersRes, customersRes] = await Promise.all([
-      api.getFinancialSummary(dateParams).catch(() => ({
-        totalIncome: 0,
-        totalExpense: 0,
-        netProfit: 0,
-        netSalonIncome: 0,
-        profitMargin: 0,
-        totalCommissionsGenerated: 0,
-        totalCommissionsPaid: 0,
-        pendingCommissions: 0,
-        pendingExpensesCount: 0,
-        pendingExpensesTotal: 0,
-        paymentMethods: {},
-        entryCount: 0,
-        recentEntries: []
-      })),
-      api.getFinancialEntries(dateParams).catch(() => []),
-      api.getBarberSplits(dateParams).catch(() => []),
+    const range = getActiveDateRange();
+    const [summaryRes, entriesRes, barbersRes, customersRes] = await Promise.all([
+      api.getFinancialSummary({
+        startDate: range.startDate,
+        endDate: range.endDate,
+      }),
+      api.getFinancialEntries({
+        startDate: range.startDate,
+        endDate: range.endDate,
+      }),
       api.getBarbers().catch(() => []),
       api.getCustomers().catch(() => [])
     ]);
 
     summary.value = summaryRes;
     entries.value = entriesRes;
-    splits.value = splitsRes;
     barbers.value = barbersRes;
     customers.value = customersRes;
-  } catch (err) {
-    toast.error('Erro ao carregar módulo financeiro', 'Falha');
+    currentPage.value = 1;
+  } catch (err: any) {
+    console.error('Erro ao carregar dados financeiros:', err);
+    toast.error(err.message || 'Erro ao carregar módulo financeiro', 'Falha');
   } finally {
     loading.value = false;
   }
 }
 
-// ================= COMPUTEDS =================
-// 1. Lançamentos Filtrados
-const filteredEntries = computed(() => {
-  return entries.value.filter((entry) => {
-    // Filtro por tipo
-    if (entryTypeFilter.value !== 'ALL' && entry.type !== entryTypeFilter.value) {
-      return false;
-    }
-
-    // Filtro por categoria
-    if (entryCategoryFilter.value !== 'Todos' && entry.category !== entryCategoryFilter.value) {
-      return false;
-    }
-
-    // Filtro por status de pagamento (Pilar 4)
-    if (entryStatusFilter.value === 'PAID' && entry.status !== 'PAID') {
-      return false;
-    }
-    if (entryStatusFilter.value === 'PENDING' && entry.status !== 'PENDING') {
-      return false;
-    }
-    if (entryStatusFilter.value === 'OVERDUE') {
-      if (entry.status !== 'PENDING' || !isOverdue(entry.dueDate)) {
-        return false;
-      }
-    }
-
-    // Busca textual
-    if (!entrySearchQuery.value.trim()) return true;
-
-    const q = entrySearchQuery.value.toLowerCase().trim();
-    return (
-      entry.description?.toLowerCase().includes(q) ||
-      entry.category?.toLowerCase().includes(q) ||
-      entry.barberName?.toLowerCase().includes(q) ||
-      entry.paymentMethod?.toLowerCase().includes(q)
-    );
+// ================= COMPUTED PROPERTIES: LIVRO CAIXA =================
+const distinctEntryCategories = computed(() => {
+  const cats = new Set<string>();
+  cats.add('Todos');
+  entries.value.forEach(e => {
+    if (e.category) cats.add(e.category);
   });
+  return Array.from(cats);
 });
 
-// 2. Lançamentos Ordenados
+const filteredEntries = computed(() => {
+  let list = entries.value;
+
+  if (entryTypeFilter.value !== 'ALL') {
+    list = list.filter(e => e.type === entryTypeFilter.value);
+  }
+
+  if (entryStatusFilter.value !== 'ALL') {
+    if (entryStatusFilter.value === 'PAID') {
+      list = list.filter(e => e.status === 'PAID');
+    } else if (entryStatusFilter.value === 'PENDING') {
+      list = list.filter(e => e.status === 'PENDING');
+    } else if (entryStatusFilter.value === 'OVERDUE') {
+      list = list.filter(e => e.status === 'PENDING' && isOverdue(e.dueDate));
+    }
+  }
+
+  if (entryCategoryFilter.value !== 'Todos') {
+    list = list.filter(e => e.category === entryCategoryFilter.value);
+  }
+
+  if (entrySearchQuery.value.trim()) {
+    const q = entrySearchQuery.value.toLowerCase().trim();
+    list = list.filter(e => 
+      (e.description && e.description.toLowerCase().includes(q)) ||
+      (e.category && e.category.toLowerCase().includes(q)) ||
+      (e.barberName && e.barberName.toLowerCase().includes(q)) ||
+      (e.paymentMethod && e.paymentMethod.toLowerCase().includes(q)) ||
+      (e.id && e.id.toLowerCase().includes(q))
+    );
+  }
+
+  return list;
+});
+
 const sortedEntries = computed(() => {
   const list = [...filteredEntries.value];
+  list.sort((a, b) => {
+    let fieldA: any = a.paidAt || a.createdAt;
+    let fieldB: any = b.paidAt || b.createdAt;
 
-  return list.sort((a, b) => {
-    let comparison = 0;
-
-    if (sortColumn.value === 'date') {
-      const dateA = new Date(a.paidAt || a.createdAt).getTime();
-      const dateB = new Date(b.paidAt || b.createdAt).getTime();
-      comparison = dateA - dateB;
+    if (sortColumn.value === 'amount') {
+      fieldA = Number(a.amount);
+      fieldB = Number(b.amount);
     } else if (sortColumn.value === 'type') {
-      comparison = a.type.localeCompare(b.type);
+      fieldA = a.type;
+      fieldB = b.type;
     } else if (sortColumn.value === 'category') {
-      comparison = (a.category || '').localeCompare(b.category || '');
-    } else if (sortColumn.value === 'amount') {
-      comparison = Number(a.amount) - Number(b.amount);
+      fieldA = a.category;
+      fieldB = b.category;
     }
 
-    return sortDirection.value === 'asc' ? comparison : -comparison;
+    if (fieldA < fieldB) return sortDirection.value === 'asc' ? -1 : 1;
+    if (fieldA > fieldB) return sortDirection.value === 'asc' ? 1 : -1;
+    return 0;
   });
+  return list;
 });
 
-// 3. Paginação
 const totalPages = computed(() => {
   return Math.ceil(sortedEntries.value.length / itemsPerPage.value) || 1;
 });
 
 const paginatedEntries = computed(() => {
   const start = (currentPage.value - 1) * itemsPerPage.value;
-  const end = start + itemsPerPage.value;
-  return sortedEntries.value.slice(start, end);
+  return sortedEntries.value.slice(start, start + itemsPerPage.value);
 });
 
-// Categorias distintas para filtro
-const distinctEntryCategories = computed(() => {
-  const cats = new Set<string>();
-  entries.value.forEach((e) => {
-    if (e.category) cats.add(e.category);
-  });
-  return ['Todos', ...Array.from(cats)];
+// ================= COMPUTED PROPERTIES: CONTAS A PAGAR =================
+const payablesFilter = ref<'ALL' | 'OVERDUE' | 'TODAY' | 'UPCOMING'>('ALL');
+const payablesSearch = ref('');
+
+const allExpenses = computed(() => {
+  return entries.value.filter(e => e.type === 'EXPENSE');
 });
 
-// ================= AÇÕES FINANCEIRAS =================
-function openCreateEntryModal(type: 'INCOME' | 'EXPENSE' = 'INCOME') {
-  playPopSound();
-  entryForm.type = type;
-  entryForm.category = type === 'INCOME' ? 'Serviço' : 'Insumos & Descartáveis';
-  entryForm.description = '';
-  entryForm.amount = 50;
-  entryForm.paymentMethod = 'PIX';
-  entryForm.barberId = '';
-  entryForm.barberCommission = 0;
-  entryForm.status = 'PAID';
-  entryForm.dueDate = new Date().toISOString().split('T')[0];
-  isEntryModalOpen.value = true;
+const pendingPayables = computed(() => {
+  return allExpenses.value.filter(e => e.status === 'PENDING');
+});
+
+const overduePayables = computed(() => {
+  return pendingPayables.value.filter(e => isOverdue(e.dueDate));
+});
+
+const todayPayables = computed(() => {
+  return pendingPayables.value.filter(e => isDueToday(e.dueDate));
+});
+
+const paidExpenses = computed(() => {
+  return allExpenses.value.filter(e => e.status === 'PAID');
+});
+
+const totalPendingAmount = computed(() => {
+  return pendingPayables.value.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+});
+
+const totalOverdueAmount = computed(() => {
+  return overduePayables.value.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+});
+
+const filteredPayables = computed(() => {
+  let list = pendingPayables.value;
+  if (payablesFilter.value === 'OVERDUE') {
+    list = overduePayables.value;
+  } else if (payablesFilter.value === 'TODAY') {
+    list = todayPayables.value;
+  } else if (payablesFilter.value === 'UPCOMING') {
+    list = pendingPayables.value.filter(e => !isOverdue(e.dueDate) && !isDueToday(e.dueDate));
+  }
+
+  if (payablesSearch.value.trim()) {
+    const q = payablesSearch.value.toLowerCase().trim();
+    list = list.filter(e => 
+      (e.description && e.description.toLowerCase().includes(q)) ||
+      (e.category && e.category.toLowerCase().includes(q))
+    );
+  }
+
+  return list;
+});
+
+// ================= HELPERS VISUAIS =================
+function formatMoney(val?: number): string {
+  if (val === undefined || val === null || isNaN(val)) return 'R$ 0,00';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 }
 
-async function handleSaveEntry() {
+function formatDate(dateStr?: string): string {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    return new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(d);
+  } catch (e) {
+    return dateStr;
+  }
+}
+
+function getPaymentMethodLabel(method?: string): string {
+  switch (method) {
+    case 'PIX': return 'Pix Instantâneo';
+    case 'CREDIT_CARD': return 'Cartão de Crédito';
+    case 'DEBIT_CARD': return 'Cartão de Débito';
+    case 'CASH': return 'Dinheiro em Espécie';
+    case 'TRANSFER': return 'Transferência Bancária';
+    default: return method || 'Outro';
+  }
+}
+
+async function handleCreateEntrySubmit() {
   if (!entryForm.description.trim()) {
-    toast.error('Informe a descrição do lançamento.', 'Atenção');
+    toast.error('Informe uma descrição para o lançamento.', 'Campo Obrigatório');
     return;
   }
-  if (entryForm.amount <= 0) {
-    toast.error('O valor do lançamento deve ser maior que zero.', 'Atenção');
+  if (!entryForm.amount || Number(entryForm.amount) <= 0) {
+    toast.error('Informe um valor numérico válido.', 'Valor Inválido');
     return;
   }
 
@@ -578,31 +651,6 @@ async function handleSaveEntry() {
   }
 }
 
-function confirmDeleteEntry(entry: FinancialEntry) {
-  playPopSound();
-  deleteTargetId.value = entry.id;
-  deleteTargetTitle.value = `${entry.type === 'INCOME' ? 'Receita' : 'Despesa'}: ${entry.description} (${formatMoney(entry.amount)})`;
-  isDeleteModalOpen.value = true;
-}
-
-async function executeDelete() {
-  if (!deleteTargetId.value) return;
-
-  playPopSound();
-  saving.value = true;
-  try {
-    await api.deleteFinancialEntry(deleteTargetId.value);
-    toast.success('Lançamento removido do extrato.', 'Excluído');
-    isDeleteModalOpen.value = false;
-    deleteTargetId.value = null;
-    await loadAllData();
-  } catch (err: any) {
-    toast.error(err.message || 'Erro ao excluir item.', 'Falha');
-  } finally {
-    saving.value = false;
-  }
-}
-
 onMounted(() => {
   loadAllData();
 });
@@ -618,17 +666,17 @@ onMounted(() => {
       <div>
         <div class="flex items-center gap-2.5 flex-wrap">
           <span class="text-xs font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400">
-            Controle de Caixa &amp; DRE
+            Controle de Caixa &amp; Finanças
           </span>
           <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-            <CheckCircle2 class="w-3.5 h-3.5 text-emerald-500" /> Livro Caixa Operacional
+            <CheckCircle2 class="w-3.5 h-3.5 text-emerald-500" /> Barbly Financial Suite
           </span>
         </div>
         <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white mt-1">
           Financeiro &amp; Livro Caixa
         </h1>
         <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-2xl">
-          Demonstrativo de receitas, despesas operacionais, fluxo de caixa e conciliação financeira da barbearia.
+          Demonstrativo de receitas, despesas operacionais, fluxo de caixa e gestão de contas da barbearia.
         </p>
       </div>
 
@@ -662,6 +710,64 @@ onMounted(() => {
           <span>Nova Receita / Despesa</span>
         </button>
       </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- NAVEGAÇÃO DE ABAS EXECUTIVAS                   -->
+    <!-- ============================================== -->
+    <div class="flex items-center gap-2 border-b border-slate-200 dark:border-white/[0.08] pb-3 overflow-x-auto no-scrollbar">
+      
+      <!-- Aba 1: Livro Caixa & Extrato -->
+      <button 
+        @click="setFinancialTab('ENTRIES')"
+        class="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl font-bold text-xs transition cursor-pointer whitespace-nowrap"
+        :class="activeFinancialTab === 'ENTRIES' 
+          ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black' 
+          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
+      >
+        <FileText class="w-4 h-4" />
+        <span>Livro Caixa (Extrato)</span>
+        <span class="px-2 py-0.5 rounded-full text-[10px] bg-black/10 dark:bg-white/10 font-black">
+          {{ entries.length }}
+        </span>
+      </button>
+
+      <!-- Aba 2: DRE Gerencial Sintético & Indicadores -->
+      <button 
+        @click="setFinancialTab('DRE')"
+        class="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl font-bold text-xs transition cursor-pointer whitespace-nowrap"
+        :class="activeFinancialTab === 'DRE' 
+          ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black' 
+          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
+      >
+        <Calculator class="w-4 h-4" />
+        <span>DRE Gerencial &amp; Métricas</span>
+        <span 
+          class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
+          :class="(summary.profitMargin || 0) >= 0 ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/20 text-rose-700 dark:text-rose-300'"
+        >
+          {{ summary.profitMargin || 0 }}% Margem
+        </span>
+      </button>
+
+      <!-- Aba 3: Contas a Pagar & Prazos -->
+      <button 
+        @click="setFinancialTab('PAYABLES')"
+        class="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl font-bold text-xs transition cursor-pointer whitespace-nowrap"
+        :class="activeFinancialTab === 'PAYABLES' 
+          ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black' 
+          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'"
+      >
+        <CalendarClock class="w-4 h-4" />
+        <span>Contas a Pagar</span>
+        <span 
+          v-if="(summary.pendingExpensesCount || 0) > 0" 
+          class="px-2 py-0.5 rounded-full text-[10px] bg-rose-500 text-white font-black animate-pulse"
+        >
+          {{ summary.pendingExpensesCount }}
+        </span>
+      </button>
+
     </div>
 
     <!-- ============================================== -->
@@ -712,339 +818,101 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- ============================================== -->
-    <!-- KPI CARDS FINANCEIROS (VISÍVEIS NO TOPO)       -->
-    <!-- ============================================== -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-      <!-- Card 1: Faturamento Bruto (Receitas) -->
-      <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm relative overflow-hidden group">
-        <div class="flex items-center justify-between">
-          <span class="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Receitas Totais</span>
-          <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
-            <ArrowUpRight class="w-4 h-4" />
-          </div>
-        </div>
-        <div class="mt-2">
-          <div class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white truncate">
-            {{ formatMoney(summary.totalIncome) }}
-          </div>
-          <div class="text-[11px] text-slate-400 mt-1 truncate">
-            <span class="text-emerald-500 font-bold">Entradas</span> serviços &amp; produtos
-          </div>
-        </div>
-      </div>
-
-      <!-- Card 2: Despesas Operacionais -->
-      <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm relative overflow-hidden group">
-        <div class="flex items-center justify-between">
-          <span class="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Despesas &amp; Saídas</span>
-          <div class="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
-            <ArrowDownRight class="w-4 h-4" />
-          </div>
-        </div>
-        <div class="mt-2">
-          <div class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white truncate">
-            {{ formatMoney(summary.totalExpense) }}
-          </div>
-          <div class="text-[11px] text-slate-400 mt-1 truncate">
-            Custos fixos e repasses pagos
-          </div>
-        </div>
-      </div>
-
-      <!-- Card 3: Lucro Líquido Real -->
-      <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm relative overflow-hidden group">
-        <div class="flex items-center justify-between">
-          <span class="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Lucro Líquido Real</span>
-          <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-            <Wallet class="w-4 h-4" />
-          </div>
-        </div>
-        <div class="mt-2">
-          <div class="text-xl sm:text-2xl font-black truncate" :class="summary.netProfit >= 0 ? 'text-emerald-500' : 'text-rose-500'">
-            {{ formatMoney(summary.netProfit) }}
-          </div>
-          <div class="text-[11px] text-slate-400 mt-1 truncate">
-            Sobrou em caixa no período
-          </div>
-        </div>
-      </div>
-
-      <!-- Card 4: Contas a Pagar / Previsão Pendente (Pilar 4) -->
-      <div 
-        @click="entryStatusFilter = entryStatusFilter === 'PENDING' ? 'ALL' : 'PENDING'"
-        class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border shadow-sm relative overflow-hidden group cursor-pointer transition hover:border-amber-500/50"
-        :class="(summary.pendingExpensesCount || 0) > 0 ? 'border-amber-500/40 bg-amber-500/[0.02]' : 'border-slate-200 dark:border-white/[0.08]'"
-        title="Clique para filtrar contas pendentes"
-      >
-        <div class="flex items-center justify-between">
-          <span class="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Contas a Pagar</span>
-          <div class="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0">
-            <CalendarClock class="w-4 h-4" />
-          </div>
-        </div>
-        <div class="mt-2">
-          <div class="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 truncate">
-            {{ formatMoney(summary.pendingExpensesTotal || 0) }}
-          </div>
-          <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate flex items-center gap-1">
-            <span class="font-black text-amber-500">{{ summary.pendingExpensesCount || 0 }}</span> conta(s) pendente(s)
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- ========================================================================= -->
-    <!-- DRE GERENCIAL SINTÉTICO (PILAR 1) & FORMAS DE PAGAMENTO (PILAR 3)          -->
+    <!-- ABA 1: LIVRO CAIXA & EXTRATO DE LANÇAMENTOS                               -->
     <!-- ========================================================================= -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+    <div v-if="activeFinancialTab === 'ENTRIES'" class="space-y-6">
       
-      <!-- DRE Gerencial (lg:col-span-2) -->
-      <div class="lg:col-span-2 bg-white dark:bg-[#0e131d] rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-white/[0.08] shadow-sm flex flex-col justify-between">
-        <div>
-          <!-- Topo do DRE com Botão Recolher/Expandir -->
-          <div class="flex items-center justify-between pb-3.5 border-b border-slate-100 dark:border-white/[0.06]">
-            <div class="flex items-center gap-2.5">
-              <div class="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-black">
-                <Calculator class="w-4 h-4" />
-              </div>
-              <div>
-                <h3 class="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <span>DRE Gerencial Sintético</span>
-                  <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300">
-                    Demonstrativo de Resultados
-                  </span>
-                </h3>
-                <p class="text-[11px] text-slate-400">
-                  Visão executiva da lucratividade real e margem líquida da operação
-                </p>
-              </div>
+      <!-- Top 4 KPI Cards -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        
+        <!-- Card 1: Faturamento Bruto (Receitas) -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm relative overflow-hidden group">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Faturamento Bruto</span>
+            <div class="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <TrendingUp class="w-4 h-4" />
             </div>
-
-            <button 
-              @click="toggleDre"
-              class="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs font-bold text-slate-600 dark:text-slate-300 transition cursor-pointer"
-            >
-              <span>{{ isDreOpen ? 'Recolher DRE' : 'Expandir DRE' }}</span>
-              <ChevronUp v-if="isDreOpen" class="w-3.5 h-3.5" />
-              <ChevronDown v-else class="w-3.5 h-3.5" />
-            </button>
           </div>
+          <div class="mt-2">
+            <div class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white truncate">
+              {{ formatMoney(summary.totalIncome) }}
+            </div>
+            <div class="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-1 truncate flex items-center gap-1">
+              <ArrowUpRight class="w-3.5 h-3.5 shrink-0" />
+              <span>Entradas operacionais</span>
+            </div>
+          </div>
+        </div>
 
-          <!-- Conteúdo do DRE (quando aberto) -->
-          <div v-show="isDreOpen" class="mt-4 space-y-3">
-            
-            <!-- Linha 1: Receita Bruta Total -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04] text-xs">
-              <div class="flex items-center gap-2">
-                <span class="w-5 h-5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black text-[11px]">+</span>
-                <span class="font-bold text-slate-800 dark:text-slate-200">Faturamento Bruto (Serviços + Balcão)</span>
-              </div>
-              <span class="font-black text-slate-900 dark:text-white text-sm">
-                {{ formatMoney(summary.totalIncome) }}
+        <!-- Card 2: Despesas Totais -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm relative overflow-hidden group">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Despesas &amp; Saídas</span>
+            <div class="w-8 h-8 rounded-xl bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <TrendingDown class="w-4 h-4" />
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white truncate">
+              {{ formatMoney(summary.totalExpense) }}
+            </div>
+            <div class="text-[11px] text-rose-600 dark:text-rose-400 font-bold mt-1 truncate flex items-center gap-1">
+              <ArrowDownRight class="w-3.5 h-3.5 shrink-0" />
+              <span>Custos fixos &amp; variáveis</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3: Saldo Líquido do Caixa -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm relative overflow-hidden group">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Saldo Líquido</span>
+            <div class="w-8 h-8 rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+              <Wallet class="w-4 h-4" />
+            </div>
+          </div>
+          <div class="mt-2">
+            <div 
+              class="text-xl sm:text-2xl font-black truncate"
+              :class="summary.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'"
+            >
+              {{ formatMoney(summary.netProfit) }}
+            </div>
+            <div class="text-[11px] text-slate-500 dark:text-slate-400 font-bold mt-1 truncate flex items-center gap-1">
+              <span>Margem:</span>
+              <span class="font-black" :class="(summary.profitMargin || 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'">
+                {{ summary.profitMargin || 0 }}%
               </span>
             </div>
-
-            <!-- Linha 2: Repasses Barbeiros Parceiros -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04] text-xs">
-              <div class="flex items-center gap-2">
-                <span class="w-5 h-5 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center font-black text-[11px]">-</span>
-                <div>
-                  <span class="font-bold text-slate-800 dark:text-slate-200 block">Quota-Parte dos Barbeiros (Comissões)</span>
-                  <span class="text-[10px] text-slate-400">Salão-Parceiro Lei 13.352</span>
-                </div>
-              </div>
-              <div class="text-right">
-                <span class="font-black text-amber-500 text-sm block">
-                  - {{ formatMoney(summary.totalCommissionsGenerated) }}
-                </span>
-                <span class="text-[10px] text-slate-400">
-                  {{ summary.totalIncome > 0 ? ((summary.totalCommissionsGenerated / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
-                </span>
-              </div>
-            </div>
-
-            <!-- Linha 3: Receita Líquida do Estabelecimento -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-blue-500/[0.04] border border-blue-500/20 text-xs">
-              <div class="flex items-center gap-2">
-                <span class="w-5 h-5 rounded-lg bg-blue-500/15 text-blue-500 flex items-center justify-center font-black text-[11px]">=</span>
-                <span class="font-black text-blue-700 dark:text-blue-300">Receita Líquida da Barbearia</span>
-              </div>
-              <span class="font-black text-blue-700 dark:text-blue-300 text-sm">
-                {{ formatMoney(summary.netSalonIncome || (summary.totalIncome - summary.totalCommissionsGenerated)) }}
-              </span>
-            </div>
-
-            <!-- Linha 4: Despesas Operacionais e Fixas -->
-            <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04] text-xs">
-              <div class="flex items-center gap-2">
-                <span class="w-5 h-5 rounded-lg bg-rose-500/10 text-rose-500 flex items-center justify-center font-black text-[11px]">-</span>
-                <div>
-                  <span class="font-bold text-slate-800 dark:text-slate-200 block">Despesas Fixas &amp; Custos Operacionais</span>
-                  <span class="text-[10px] text-slate-400">Aluguel, energia, insumos, sistemas e outras saídas</span>
-                </div>
-              </div>
-              <div class="text-right">
-                <span class="font-black text-rose-500 text-sm block">
-                  - {{ formatMoney(summary.totalExpense) }}
-                </span>
-                <span class="text-[10px] text-slate-400">
-                  {{ summary.totalIncome > 0 ? ((summary.totalExpense / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
-                </span>
-              </div>
-            </div>
-
-            <!-- Linha 5: Resultado Líquido Operacional (Lucro Real) -->
-            <div 
-              class="flex items-center justify-between p-4 rounded-2xl border text-xs"
-              :class="summary.netProfit >= 0
-                ? 'bg-emerald-500/10 border-emerald-500/30'
-                : 'bg-rose-500/10 border-rose-500/30'"
-            >
-              <div class="flex items-center gap-2.5">
-                <span class="w-7 h-7 rounded-lg bg-emerald-500 text-slate-950 font-black text-xs flex items-center justify-center font-mono">
-                  $
-                </span>
-                <div>
-                  <span class="font-black text-sm uppercase tracking-wider block"
-                    :class="summary.netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'"
-                  >
-                    Resultado Líquido do Exercício (Lucro Real)
-                  </span>
-                  <span class="text-[10px] text-slate-500 dark:text-slate-400">
-                    Lucro retido em caixa após todas as despesas e repasses
-                  </span>
-                </div>
-              </div>
-
-              <div class="text-right">
-                <span class="text-xl font-black block"
-                  :class="summary.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'"
-                >
-                  {{ formatMoney(summary.netProfit) }}
-                </span>
-                <span 
-                  class="px-2.5 py-0.5 rounded-full text-[10px] font-black inline-block mt-0.5 shadow-sm"
-                  :class="summary.netProfit >= 0 ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-white'"
-                >
-                  {{ summary.profitMargin || 0 }}% Margem Líquida
-                </span>
-              </div>
-            </div>
-
           </div>
         </div>
+
+        <!-- Card 4: Contas a Pagar (Atalho clicável) -->
+        <div 
+          @click="setFinancialTab('PAYABLES')"
+          class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border shadow-sm relative overflow-hidden group cursor-pointer transition hover:border-amber-500/50"
+          :class="(summary.pendingExpensesCount || 0) > 0 ? 'border-amber-500/40 bg-amber-500/[0.02]' : 'border-slate-200 dark:border-white/[0.08]'"
+          title="Clique para abrir a aba Contas a Pagar"
+        >
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider truncate">Contas a Pagar</span>
+            <div class="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center shrink-0">
+              <CalendarClock class="w-4 h-4" />
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 truncate">
+              {{ formatMoney(summary.pendingExpensesTotal || 0) }}
+            </div>
+            <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 truncate flex items-center gap-1">
+              <span class="font-black text-amber-500">{{ summary.pendingExpensesCount || 0 }}</span> pendente(s) • <span class="text-amber-500 underline font-semibold">Ver aba</span>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      <!-- Conciliação por Forma de Pagamento (lg:col-span-1) -->
-      <div class="bg-white dark:bg-[#0e131d] rounded-3xl p-5 sm:p-6 border border-slate-200 dark:border-white/[0.08] shadow-sm flex flex-col justify-between">
-        <div>
-          <!-- Topo -->
-          <div class="flex items-center justify-between pb-3.5 border-b border-slate-100 dark:border-white/[0.06]">
-            <div class="flex items-center gap-2.5">
-              <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-black">
-                <PieChart class="w-4 h-4" />
-              </div>
-              <div>
-                <h3 class="text-sm font-black text-slate-900 dark:text-white">
-                  Formas de Pagamento
-                </h3>
-                <p class="text-[11px] text-slate-400">
-                  Conciliação das entradas no período
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Barra Visual Segmentada -->
-          <div class="my-4">
-            <div class="w-full h-3 rounded-full bg-slate-100 dark:bg-white/5 overflow-hidden flex shadow-inner">
-              <div 
-                v-if="summary.paymentMethods?.PIX"
-                :style="{ width: `${summary.paymentMethods.PIX.percentage}%` }" 
-                class="bg-emerald-500 transition-all duration-500" 
-                title="Pix"
-              ></div>
-              <div 
-                v-if="summary.paymentMethods?.CREDIT_CARD"
-                :style="{ width: `${summary.paymentMethods.CREDIT_CARD.percentage}%` }" 
-                class="bg-blue-500 transition-all duration-500" 
-                title="Cartão de Crédito"
-              ></div>
-              <div 
-                v-if="summary.paymentMethods?.DEBIT_CARD"
-                :style="{ width: `${summary.paymentMethods.DEBIT_CARD.percentage}%` }" 
-                class="bg-indigo-500 transition-all duration-500" 
-                title="Cartão de Débito"
-              ></div>
-              <div 
-                v-if="summary.paymentMethods?.CASH"
-                :style="{ width: `${summary.paymentMethods.CASH.percentage}%` }" 
-                class="bg-amber-500 transition-all duration-500" 
-                title="Dinheiro"
-              ></div>
-              <div 
-                v-if="summary.paymentMethods?.TRANSFER"
-                :style="{ width: `${summary.paymentMethods.TRANSFER.percentage}%` }" 
-                class="bg-slate-400 transition-all duration-500" 
-                title="Outros"
-              ></div>
-            </div>
-          </div>
-
-          <!-- Lista de Métodos -->
-          <div class="space-y-2 text-xs">
-            <div 
-              v-for="(data, method) in summary.paymentMethods" 
-              :key="method"
-              class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]"
-            >
-              <div class="flex items-center gap-2">
-                <span 
-                  class="w-2.5 h-2.5 rounded-full"
-                  :class="{
-                    'bg-emerald-500': method === 'PIX',
-                    'bg-blue-500': method === 'CREDIT_CARD',
-                    'bg-indigo-500': method === 'DEBIT_CARD',
-                    'bg-amber-500': method === 'CASH',
-                    'bg-slate-400': method !== 'PIX' && method !== 'CREDIT_CARD' && method !== 'DEBIT_CARD' && method !== 'CASH',
-                  }"
-                ></span>
-                <span class="font-bold text-slate-800 dark:text-slate-200">
-                  {{ getPaymentMethodLabel(method) }}
-                </span>
-                <span class="text-[10px] text-slate-400 font-mono">({{ data.count }})</span>
-              </div>
-
-              <div class="text-right">
-                <span class="font-black text-slate-900 dark:text-white block">
-                  {{ formatMoney(data.total) }}
-                </span>
-                <span class="text-[10px] text-slate-400 font-bold">
-                  {{ data.percentage }}%
-                </span>
-              </div>
-            </div>
-
-            <div v-if="!summary.paymentMethods || Object.keys(summary.paymentMethods).length === 0" class="text-center py-6 text-slate-400 text-xs">
-              Nenhuma entrada no período para conciliar.
-            </div>
-          </div>
-        </div>
-
-        <div class="pt-3 mt-3 border-t border-slate-100 dark:border-white/[0.06] text-[10px] text-slate-400 flex items-center justify-between">
-          <span>Total Conciliado:</span>
-          <span class="font-bold text-slate-700 dark:text-slate-300">{{ formatMoney(summary.totalIncome) }}</span>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- ========================================================================= -->
-    <!-- EXTRATO FINANCEIRO & LIVRO CAIXA                                          -->
-    <!-- ========================================================================= -->
-    <div class="space-y-4">
-      
       <!-- Barra de Filtros e Busca de Lançamentos -->
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-white dark:bg-[#0e131d] border border-slate-200 dark:border-white/[0.08] shadow-sm">
         
@@ -1087,7 +955,7 @@ onMounted(() => {
             </button>
           </div>
 
-          <!-- Filtro Status de Pagamento (Pilar 4) -->
+          <!-- Filtro Status de Pagamento -->
           <div class="flex items-center gap-1 p-1 bg-slate-100 dark:bg-white/[0.03] rounded-xl border border-slate-200 dark:border-white/10 shrink-0">
             <button 
               @click="entryStatusFilter = 'ALL'" 
@@ -1115,7 +983,6 @@ onMounted(() => {
               @click="entryStatusFilter = 'OVERDUE'" 
               :class="entryStatusFilter === 'OVERDUE' ? 'bg-rose-600 text-white font-black shadow-sm animate-pulse' : 'text-slate-500 dark:text-slate-400'"
               class="px-2.5 py-1 rounded-lg text-xs transition cursor-pointer"
-              title="Lançamentos com vencimento ultrapassado"
             >
               Vencidos
             </button>
@@ -1156,7 +1023,7 @@ onMounted(() => {
             @click="setEntryViewMode('CARDS')" 
             :class="entryViewMode === 'CARDS' ? 'bg-white dark:bg-[#121824] shadow-sm text-slate-900 dark:text-white' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'"
             class="p-1.5 rounded-lg transition cursor-pointer"
-            title="Visualização em Cards"
+            title="Visualização em Grade / Cards"
           >
             <LayoutGrid class="w-4 h-4" />
           </button>
@@ -1164,64 +1031,44 @@ onMounted(() => {
 
       </div>
 
-      <!-- VISUALIZAÇÃO EM TABELA / LISTA -->
-      <div v-if="entryViewMode === 'LIST'" class="bg-white dark:bg-[#0e131d] rounded-2xl border border-slate-200 dark:border-white/[0.08] shadow-sm overflow-hidden">
+      <!-- TABELA / LISTA DE LANÇAMENTOS -->
+      <div v-if="entryViewMode === 'LIST'" class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/[0.08] shadow-sm overflow-hidden">
         <div class="overflow-x-auto no-scrollbar">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-slate-50 dark:bg-white/[0.02] border-b border-slate-200 dark:border-white/[0.06] text-slate-400 dark:text-slate-500 uppercase tracking-wider font-bold text-[10px]">
-              <tr>
-                <th class="px-5 py-3.5 cursor-pointer hover:text-amber-500 transition" @click="toggleSort('date')">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-100 dark:border-white/[0.06] bg-slate-50/50 dark:bg-white/[0.02] text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <th class="py-3.5 px-4 cursor-pointer select-none hover:text-amber-500" @click="toggleSort('date')">
                   <div class="flex items-center gap-1">
-                    <span>Data</span>
-                    <ArrowUpDown class="w-3 h-3 opacity-60" />
+                    <span>Data / Hora</span>
+                    <ArrowUpDown class="w-3 h-3" />
                   </div>
                 </th>
-                <th class="px-5 py-3.5 cursor-pointer hover:text-amber-500 transition" @click="toggleSort('type')">
+                <th class="py-3.5 px-4 cursor-pointer select-none hover:text-amber-500" @click="toggleSort('type')">
                   <div class="flex items-center gap-1">
                     <span>Tipo</span>
-                    <ArrowUpDown class="w-3 h-3 opacity-60" />
+                    <ArrowUpDown class="w-3 h-3" />
                   </div>
                 </th>
-                <th class="px-5 py-3.5">Status</th>
-                <th class="px-5 py-3.5">Descrição</th>
-                <th class="px-5 py-3.5 cursor-pointer hover:text-amber-500 transition" @click="toggleSort('category')">
+                <th class="py-3.5 px-4">Status &amp; Vencimento</th>
+                <th class="py-3.5 px-4 cursor-pointer select-none hover:text-amber-500" @click="toggleSort('category')">
                   <div class="flex items-center gap-1">
                     <span>Categoria</span>
-                    <ArrowUpDown class="w-3 h-3 opacity-60" />
+                    <ArrowUpDown class="w-3 h-3" />
                   </div>
                 </th>
-                <th class="px-5 py-3.5">Profissional</th>
-                <th class="px-5 py-3.5">Forma</th>
-                <th class="px-5 py-3.5 text-right cursor-pointer hover:text-amber-500 transition" @click="toggleSort('amount')">
+                <th class="py-3.5 px-4">Descrição</th>
+                <th class="py-3.5 px-4">Profissional</th>
+                <th class="py-3.5 px-4">Forma</th>
+                <th class="py-3.5 px-4 text-right cursor-pointer select-none hover:text-amber-500" @click="toggleSort('amount')">
                   <div class="flex items-center justify-end gap-1">
                     <span>Valor</span>
-                    <ArrowUpDown class="w-3 h-3 opacity-60" />
+                    <ArrowUpDown class="w-3 h-3" />
                   </div>
                 </th>
-                <th class="px-5 py-3.5 text-center">Ações</th>
+                <th class="py-3.5 px-4 text-center">Ações</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100 dark:divide-white/[0.04]">
-              <tr v-if="loading" class="text-center">
-                <td colspan="9" class="px-5 py-12 text-slate-400">
-                  <div class="flex items-center justify-center gap-2">
-                    <Loader2 class="w-5 h-5 animate-spin text-amber-500" />
-                    <span>Carregando extrato financeiro...</span>
-                  </div>
-                </td>
-              </tr>
-
-              <tr v-else-if="paginatedEntries.length === 0" class="text-center">
-                <td colspan="9" class="px-5 py-12 text-slate-400">
-                  <div class="flex flex-col items-center justify-center gap-2">
-                    <DollarSign class="w-8 h-8 text-slate-300 dark:text-slate-600" />
-                    <p class="font-bold text-slate-600 dark:text-slate-300">Nenhum lançamento encontrado para os filtros ativos.</p>
-                    <p class="text-[11px] text-slate-400">Clique em "+ Nova Receita / Despesa" para cadastrar um novo lançamento.</p>
-                  </div>
-                </td>
-              </tr>
-
-              <!-- LINHA DA TABELA: CLICÁVEL PARA ABRIR O MODAL DE DETALHES -->
+            <tbody class="divide-y divide-slate-100 dark:divide-white/[0.04] text-xs">
               <tr 
                 v-for="entry in paginatedEntries" 
                 :key="entry.id"
@@ -1230,79 +1077,83 @@ onMounted(() => {
                 title="Clique para ver os detalhes completos deste lançamento"
               >
                 <!-- Data -->
-                <td class="px-5 py-4 whitespace-nowrap text-slate-600 dark:text-slate-400 font-medium">
+                <td class="py-3 px-4 font-semibold text-slate-600 dark:text-slate-400 whitespace-nowrap">
                   {{ formatDate(entry.paidAt || entry.createdAt) }}
                 </td>
 
                 <!-- Tipo -->
-                <td class="px-5 py-4 whitespace-nowrap">
+                <td class="py-3 px-4 whitespace-nowrap">
                   <span 
-                    class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider inline-flex items-center gap-1"
-                    :class="entry.type === 'INCOME' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'"
+                    class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
+                    :class="entry.type === 'INCOME' 
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' 
+                      : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'"
                   >
-                    <component :is="entry.type === 'INCOME' ? ArrowUpRight : ArrowDownRight" class="w-3 h-3" />
                     {{ entry.type === 'INCOME' ? 'Receita' : 'Despesa' }}
                   </span>
                 </td>
 
-                <!-- Status Inteligente (Pilar 4) -->
-                <td class="px-5 py-4 whitespace-nowrap">
+                <!-- Status & Vencimento -->
+                <td class="py-3 px-4 whitespace-nowrap">
                   <div class="flex items-center gap-1.5">
                     <span 
-                      class="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider inline-block"
+                      class="px-2 py-0.5 rounded-full text-[10px]"
                       :class="getEntryStatusBadge(entry).class"
                     >
                       {{ getEntryStatusBadge(entry).label }}
                     </span>
+                    <!-- Botão Dar Baixa Rápida se Pendente -->
                     <button 
                       v-if="entry.status === 'PENDING'"
                       @click.stop="handleSettleEntry(entry)"
-                      class="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500 text-emerald-600 hover:text-white dark:text-emerald-400 font-black text-[10px] transition cursor-pointer"
-                      title="Dar baixa / Marcar como Pago"
+                      class="px-2 py-0.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-[10px] transition cursor-pointer shadow-sm"
+                      title="Registrar pagamento (Dar Baixa)"
                     >
-                      Dar Baixa
+                      Baixar
                     </button>
                   </div>
                 </td>
 
-                <!-- Descrição -->
-                <td class="px-5 py-4 font-semibold text-slate-900 dark:text-white max-w-xs truncate">
-                  {{ entry.description }}
-                </td>
-
                 <!-- Categoria -->
-                <td class="px-5 py-4 whitespace-nowrap">
-                  <span class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-white/[0.05] text-slate-700 dark:text-slate-300 text-[11px] font-bold">
-                    {{ entry.category }}
+                <td class="py-3 px-4 font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                  <span class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-white/[0.04] text-[11px]">
+                    {{ entry.category || 'Geral' }}
                   </span>
                 </td>
 
-                <!-- Barbeiro -->
-                <td class="px-5 py-4 whitespace-nowrap text-slate-600 dark:text-slate-400">
-                  <div v-if="entry.barberName" class="flex items-center gap-1.5 font-medium">
-                    <User class="w-3.5 h-3.5 text-amber-500" />
-                    <span>{{ entry.barberName }}</span>
-                    <span v-if="entry.barberCommission" class="text-[10px] text-amber-500 font-bold">
-                      ({{ formatMoney(entry.barberCommission) }})
-                    </span>
+                <!-- Descrição -->
+                <td class="py-3 px-4 text-slate-700 dark:text-slate-300 max-w-[240px] truncate" :title="entry.description">
+                  <span class="font-medium group-hover:text-amber-500 transition-colors">{{ entry.description }}</span>
+                </td>
+
+                <!-- Profissional / Barbeiro -->
+                <td class="py-3 px-4 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                  <div v-if="entry.barberName" class="flex items-center gap-1.5">
+                    <div class="w-5 h-5 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center text-[10px] font-black">
+                      {{ entry.barberName.charAt(0) }}
+                    </div>
+                    <span class="font-semibold text-[11px]">{{ entry.barberName }}</span>
                   </div>
-                  <span v-else class="text-slate-400">—</span>
+                  <span v-else class="text-slate-400 text-[11px]">—</span>
                 </td>
 
-                <!-- Forma Pagamento -->
-                <td class="px-5 py-4 whitespace-nowrap text-slate-500 dark:text-slate-400 font-medium">
-                  <span class="px-2 py-0.5 rounded-md border border-slate-200 dark:border-white/10 text-[10px] font-bold">
-                    {{ entry.paymentMethod || 'PIX' }}
-                  </span>
+                <!-- Forma de Pagamento -->
+                <td class="py-3 px-4 whitespace-nowrap">
+                  <div class="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                    <CreditCard class="w-3.5 h-3.5 text-slate-400" />
+                    <span class="font-bold text-[11px]">{{ getPaymentMethodLabel(entry.paymentMethod) }}</span>
+                  </div>
                 </td>
 
                 <!-- Valor -->
-                <td class="px-5 py-4 whitespace-nowrap text-right font-black text-sm" :class="entry.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
-                  {{ entry.type === 'INCOME' ? '+' : '-' }} {{ formatMoney(entry.amount) }}
+                <td class="py-3 px-4 text-right font-black whitespace-nowrap">
+                  <span :class="entry.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+                    {{ entry.type === 'INCOME' ? '+' : '-' }} {{ formatMoney(entry.amount) }}
+                  </span>
                 </td>
 
                 <!-- Ações -->
-                <td class="px-5 py-4 whitespace-nowrap text-center">
+                <td class="py-3 px-4 text-center whitespace-nowrap" @click.stop>
                   <div class="flex items-center justify-center gap-1.5">
                     <button 
                       @click.stop="openEntryDetail(entry)"
@@ -1312,7 +1163,7 @@ onMounted(() => {
                       <FileText class="w-4 h-4" />
                     </button>
                     <button 
-                      @click.stop="confirmDeleteEntry(entry)"
+                      @click.stop="confirmDeleteEntry(entry.id, entry.description)"
                       class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition cursor-pointer"
                       title="Excluir lançamento"
                     >
@@ -1321,54 +1172,62 @@ onMounted(() => {
                   </div>
                 </td>
               </tr>
+
+              <tr v-if="filteredEntries.length === 0">
+                <td colspan="9" class="py-12 text-center text-slate-400">
+                  <div class="max-w-xs mx-auto space-y-2">
+                    <FileText class="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 stroke-1" />
+                    <p class="font-bold text-sm text-slate-600 dark:text-slate-300">Nenhum lançamento encontrado</p>
+                    <p class="text-xs text-slate-400">Não há registros no período ou filtros selecionados.</p>
+                  </div>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
 
-        <!-- Controles de Paginação -->
-        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 border-t border-slate-100 dark:border-white/[0.06] text-xs">
-          <div class="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-            <span>Mostrando página <strong>{{ currentPage }}</strong> de <strong>{{ totalPages }}</strong> ({{ sortedEntries.length }} lançamentos)</span>
+        <!-- Paginação -->
+        <div v-if="filteredEntries.length > 0" class="flex flex-col sm:flex-row items-center justify-between gap-3 p-4 border-t border-slate-100 dark:border-white/[0.06] text-xs text-slate-500 dark:text-slate-400">
+          <div class="flex items-center gap-2">
+            <span>Exibindo <strong>{{ paginatedEntries.length }}</strong> de <strong>{{ filteredEntries.length }}</strong> lançamentos</span>
+            <span class="text-slate-300 dark:text-slate-700">|</span>
+            <div class="flex items-center gap-1">
+              <span>Linhas por página:</span>
+              <select 
+                :value="itemsPerPage" 
+                @change="setItemsPerPage(Number(($event.target as any).value))"
+                class="px-2 py-0.5 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-700 dark:text-slate-200 cursor-pointer"
+              >
+                <option :value="10">10</option>
+                <option :value="20">20</option>
+                <option :value="50">50</option>
+                <option :value="100">100</option>
+              </select>
+            </div>
           </div>
 
-          <div class="flex items-center gap-3">
-            <!-- Seletor Itens por Página -->
-            <div class="flex items-center gap-1 text-slate-500">
-              <span>Linhas:</span>
-              <button 
-                v-for="num in [10, 20, 50, 100]" 
-                :key="num"
-                @click="setItemsPerPage(num)"
-                class="px-2 py-0.5 rounded-md font-bold transition cursor-pointer"
-                :class="itemsPerPage === num ? 'bg-amber-500 text-slate-950' : 'hover:bg-slate-100 dark:hover:bg-white/5 text-slate-600 dark:text-slate-300'"
-              >
-                {{ num }}
-              </button>
-            </div>
-
-            <!-- Navegação Anterior / Próxima -->
-            <div class="flex items-center gap-1">
-              <button 
-                @click="currentPage = Math.max(1, currentPage - 1)"
-                :disabled="currentPage === 1"
-                class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-white/10 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer"
-              >
-                Anterior
-              </button>
-              <button 
-                @click="currentPage = Math.min(totalPages, currentPage + 1)"
-                :disabled="currentPage >= totalPages"
-                class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-white/10 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer"
-              >
-                Próxima
-              </button>
-            </div>
+          <div class="flex items-center gap-1">
+            <button 
+              @click="currentPage = Math.max(1, currentPage - 1)" 
+              :disabled="currentPage === 1"
+              class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-white/5 transition"
+            >
+              Anterior
+            </button>
+            <span class="px-3 py-1 font-bold">Página {{ currentPage }} de {{ totalPages }}</span>
+            <button 
+              @click="currentPage = Math.min(totalPages, currentPage + 1)" 
+              :disabled="currentPage === totalPages"
+              class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-white/10 font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-white/5 transition"
+            >
+              Próxima
+            </button>
           </div>
         </div>
       </div>
 
-      <!-- VISUALIZAÇÃO EM CARDS -->
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <!-- CARDS VIEW (SE ATIVADO) -->
+      <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div 
           v-for="entry in paginatedEntries" 
           :key="entry.id"
@@ -1378,46 +1237,42 @@ onMounted(() => {
         >
           <div class="flex items-center justify-between">
             <span 
-              class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider inline-flex items-center gap-1"
-              :class="entry.type === 'INCOME' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'"
+              class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
+              :class="entry.type === 'INCOME' 
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' 
+                : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'"
             >
-              <component :is="entry.type === 'INCOME' ? ArrowUpRight : ArrowDownRight" class="w-3 h-3" />
               {{ entry.type === 'INCOME' ? 'Receita' : 'Despesa' }}
             </span>
+            <span class="text-[11px] font-semibold text-slate-400">
+              {{ formatDate(entry.paidAt || entry.createdAt) }}
+            </span>
+          </div>
 
-            <div class="flex items-center gap-1">
+          <div>
+            <div class="text-lg font-black text-slate-900 dark:text-white group-hover:text-amber-500 transition-colors line-clamp-1">
+              {{ entry.description }}
+            </div>
+            <div class="flex items-center gap-2 mt-1">
+              <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-white/[0.04] text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                {{ entry.category || 'Geral' }}
+              </span>
               <span 
-                class="px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wider"
+                class="px-2 py-0.5 rounded-full text-[10px]"
                 :class="getEntryStatusBadge(entry).class"
               >
                 {{ getEntryStatusBadge(entry).label }}
               </span>
-              <button 
-                v-if="entry.status === 'PENDING'"
-                @click.stop="handleSettleEntry(entry)"
-                class="px-2 py-0.5 rounded-lg bg-emerald-500 text-slate-950 font-black text-[9px] uppercase transition cursor-pointer shadow-xs"
-                title="Dar baixa / Marcar como Pago"
-              >
-                Baixar
-              </button>
             </div>
           </div>
 
-          <div>
-            <h4 class="font-bold text-slate-900 dark:text-white text-sm line-clamp-1">
-              {{ entry.description }}
-            </h4>
-            <div class="flex items-center gap-2 mt-1 text-xs text-slate-500 dark:text-slate-400">
-              <span>{{ formatDate(entry.paidAt || entry.createdAt) }}</span>
-              <span>•</span>
-              <span class="font-bold text-amber-500">{{ entry.category }}</span>
-            </div>
-          </div>
-
-          <div class="pt-2 border-t border-slate-100 dark:border-white/[0.04] flex items-center justify-between">
+          <div class="flex items-center justify-between pt-3 border-t border-slate-100 dark:border-white/[0.06]">
             <div>
-              <span class="text-[10px] text-slate-400 block uppercase font-bold">Valor</span>
-              <span class="text-base font-black" :class="entry.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
+              <span class="text-[10px] text-slate-400 uppercase font-bold block">Valor</span>
+              <span 
+                class="text-base font-black"
+                :class="entry.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'"
+              >
                 {{ entry.type === 'INCOME' ? '+' : '-' }} {{ formatMoney(entry.amount) }}
               </span>
             </div>
@@ -1431,7 +1286,7 @@ onMounted(() => {
                 <FileText class="w-4 h-4" />
               </button>
               <button 
-                @click.stop="confirmDeleteEntry(entry)"
+                @click.stop="confirmDeleteEntry(entry.id, entry.description)"
                 class="p-2 rounded-xl text-slate-400 hover:text-rose-500 transition cursor-pointer"
                 title="Excluir"
               >
@@ -1445,425 +1300,946 @@ onMounted(() => {
     </div>
 
     <!-- ========================================================================= -->
-    <!-- MODAL 1: NOVO LANÇAMENTO (RECEITA OU DESPESA) COM PLANO DE CONTAS (PILAR 5)-->
+    <!-- ABA 2: DRE GERENCIAL SINTÉTICO & INDICADORES                              -->
+    <!-- ========================================================================= -->
+    <div v-else-if="activeFinancialTab === 'DRE'" class="space-y-6">
+      
+      <!-- Top Executive Profitability Cards -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        
+        <!-- Faturamento Bruto -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Receita Bruta Total</span>
+            <div class="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center font-black">
+              +
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white truncate">
+              {{ formatMoney(summary.totalIncome) }}
+            </div>
+            <div class="text-[11px] text-slate-400 mt-1 truncate">
+              Base 100% de faturamento
+            </div>
+          </div>
+        </div>
+
+        <!-- Repasses Barbeiros Parceiros -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Quota-Parte Equipe</span>
+            <div class="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-black">
+              -
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="text-xl sm:text-2xl font-black text-amber-500 truncate">
+              {{ formatMoney(summary.totalCommissionsGenerated) }}
+            </div>
+            <div class="text-[11px] text-slate-400 mt-1 truncate">
+              {{ summary.totalIncome > 0 ? ((summary.totalCommissionsGenerated / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
+            </div>
+          </div>
+        </div>
+
+        <!-- Despesas & Custos -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Despesas Operacionais</span>
+            <div class="w-8 h-8 rounded-xl bg-rose-500/15 text-rose-500 flex items-center justify-center font-black">
+              -
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="text-xl sm:text-2xl font-black text-rose-500 truncate">
+              {{ formatMoney(summary.totalExpense) }}
+            </div>
+            <div class="text-[11px] text-slate-400 mt-1 truncate">
+              {{ summary.totalIncome > 0 ? ((summary.totalExpense / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
+            </div>
+          </div>
+        </div>
+
+        <!-- Margem Operacional Líquida % -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider truncate">Margem Líquida Real</span>
+            <div class="w-8 h-8 rounded-xl bg-blue-500/15 text-blue-500 flex items-center justify-center font-black">
+              =
+            </div>
+          </div>
+          <div class="mt-2">
+            <div 
+              class="text-xl sm:text-2xl font-black truncate"
+              :class="(summary.profitMargin || 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'"
+            >
+              {{ summary.profitMargin || 0 }}%
+            </div>
+            <div class="text-[11px] font-bold mt-1 truncate" :class="(summary.profitMargin || 0) >= 20 ? 'text-emerald-500' : ((summary.profitMargin || 0) >= 10 ? 'text-amber-500' : 'text-rose-500')">
+              {{ (summary.profitMargin || 0) >= 20 ? 'Alta Lucratividade' : ((summary.profitMargin || 0) >= 10 ? 'Margem Estável' : 'Atenção aos Custos') }}
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Grid DRE Sintético + Formas de Pagamento -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- DRE Gerencial Detalhado (lg:col-span-2) -->
+        <div class="lg:col-span-2 bg-white dark:bg-[#0e131d] rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-white/[0.08] shadow-sm space-y-5">
+          <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.06]">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center font-black">
+                <Calculator class="w-5 h-5" />
+              </div>
+              <div>
+                <h3 class="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
+                  <span>Demonstração do Resultado do Exercício (DRE)</span>
+                </h3>
+                <p class="text-xs text-slate-400">
+                  Visão executiva da lucratividade real e margem líquida retida pela barbearia
+                </p>
+              </div>
+            </div>
+
+            <span class="px-3 py-1 rounded-full text-xs font-black bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300">
+              Regime de Caixa
+            </span>
+          </div>
+
+          <div class="space-y-3.5">
+            
+            <!-- Linha 1: Receita Bruta Total -->
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
+              <div class="flex items-center gap-3">
+                <span class="w-6 h-6 rounded-lg bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black text-xs">+</span>
+                <div>
+                  <span class="font-bold text-slate-800 dark:text-slate-200 block text-xs">Faturamento Bruto Operacional</span>
+                  <span class="text-[10px] text-slate-400">Cortes, barbas, combos, produtos e balcão</span>
+                </div>
+              </div>
+              <span class="font-black text-slate-900 dark:text-white text-base">
+                {{ formatMoney(summary.totalIncome) }}
+              </span>
+            </div>
+
+            <!-- Linha 2: Repasses Barbeiros Parceiros -->
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
+              <div class="flex items-center gap-3">
+                <span class="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-500 flex items-center justify-center font-black text-xs">-</span>
+                <div>
+                  <span class="font-bold text-slate-800 dark:text-slate-200 block text-xs">Quota-Parte dos Barbeiros Parceiros</span>
+                  <span class="text-[10px] text-slate-400">Comissões profissionais conforme Lei 13.352 (Salão-Parceiro)</span>
+                </div>
+              </div>
+              <div class="text-right">
+                <span class="font-black text-amber-500 text-base block">
+                  - {{ formatMoney(summary.totalCommissionsGenerated) }}
+                </span>
+                <span class="text-[10px] text-slate-400">
+                  {{ summary.totalIncome > 0 ? ((summary.totalCommissionsGenerated / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
+                </span>
+              </div>
+            </div>
+
+            <!-- Linha 3: Receita Líquida do Estabelecimento -->
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-blue-500/[0.04] border border-blue-500/20">
+              <div class="flex items-center gap-3">
+                <span class="w-6 h-6 rounded-lg bg-blue-500/15 text-blue-500 flex items-center justify-center font-black text-xs">=</span>
+                <div>
+                  <span class="font-black text-blue-700 dark:text-blue-300 block text-xs">Receita Líquida da Barbearia</span>
+                  <span class="text-[10px] text-blue-500/80">Valor efetivamente pertencente ao estabelecimento</span>
+                </div>
+              </div>
+              <span class="font-black text-blue-700 dark:text-blue-300 text-base">
+                {{ formatMoney(summary.netSalonIncome || (summary.totalIncome - summary.totalCommissionsGenerated)) }}
+              </span>
+            </div>
+
+            <!-- Linha 4: Despesas Operacionais e Fixas -->
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
+              <div class="flex items-center gap-3">
+                <span class="w-6 h-6 rounded-lg bg-rose-500/15 text-rose-500 flex items-center justify-center font-black text-xs">-</span>
+                <div>
+                  <span class="font-bold text-slate-800 dark:text-slate-200 block text-xs">Despesas Fixas &amp; Custos Operacionais</span>
+                  <span class="text-[10px] text-slate-400">Aluguel, energia, insumos descartáveis, marketing e taxas</span>
+                </div>
+              </div>
+              <div class="text-right">
+                <span class="font-black text-rose-500 text-base block">
+                  - {{ formatMoney(summary.totalExpense) }}
+                </span>
+                <span class="text-[10px] text-slate-400">
+                  {{ summary.totalIncome > 0 ? ((summary.totalExpense / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
+                </span>
+              </div>
+            </div>
+
+            <!-- Linha 5: Resultado Líquido Operacional (Lucro Real) -->
+            <div 
+              class="flex items-center justify-between p-4 sm:p-5 rounded-2xl border"
+              :class="summary.netProfit >= 0
+                ? 'bg-emerald-500/10 border-emerald-500/30'
+                : 'bg-rose-500/10 border-rose-500/30'"
+            >
+              <div class="flex items-center gap-3">
+                <span class="w-8 h-8 rounded-xl bg-emerald-500 text-slate-950 font-black text-sm flex items-center justify-center font-mono">
+                  $
+                </span>
+                <div>
+                  <span class="font-black text-sm sm:text-base uppercase tracking-wider block"
+                    :class="summary.netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'"
+                  >
+                    Resultado Líquido do Exercício (Lucro Real)
+                  </span>
+                  <span class="text-[11px] text-slate-500 dark:text-slate-400">
+                    Lucro retido em caixa após todas as despesas e repasses
+                  </span>
+                </div>
+              </div>
+
+              <div class="text-right">
+                <span class="text-xl sm:text-2xl font-black block"
+                  :class="summary.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'"
+                >
+                  {{ formatMoney(summary.netProfit) }}
+                </span>
+                <span 
+                  class="px-2.5 py-0.5 rounded-full text-[10px] font-black inline-block mt-1 shadow-sm"
+                  :class="summary.netProfit >= 0 ? 'bg-emerald-500 text-slate-950' : 'bg-rose-500 text-white'"
+                >
+                  {{ summary.profitMargin || 0 }}% Margem Líquida
+                </span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Conciliação por Forma de Pagamento (lg:col-span-1) -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-3xl p-6 sm:p-8 border border-slate-200 dark:border-white/[0.08] shadow-sm flex flex-col justify-between space-y-6">
+          <div>
+            <!-- Topo -->
+            <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.06]">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-black">
+                  <PieChart class="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 class="text-base font-black text-slate-900 dark:text-white">
+                    Formas de Pagamento
+                  </h3>
+                  <p class="text-xs text-slate-400">
+                    Conciliação das entradas no período
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Barra Visual Segmentada -->
+            <div class="my-5">
+              <div class="w-full h-3.5 rounded-full bg-slate-100 dark:bg-white/5 overflow-hidden flex shadow-inner">
+                <div 
+                  v-if="summary.paymentMethods?.PIX"
+                  :style="{ width: `${summary.paymentMethods.PIX.percentage}%` }" 
+                  class="bg-emerald-500 transition-all duration-500" 
+                  title="Pix"
+                ></div>
+                <div 
+                  v-if="summary.paymentMethods?.CREDIT_CARD"
+                  :style="{ width: `${summary.paymentMethods.CREDIT_CARD.percentage}%` }" 
+                  class="bg-blue-500 transition-all duration-500" 
+                  title="Cartão de Crédito"
+                ></div>
+                <div 
+                  v-if="summary.paymentMethods?.DEBIT_CARD"
+                  :style="{ width: `${summary.paymentMethods.DEBIT_CARD.percentage}%` }" 
+                  class="bg-indigo-500 transition-all duration-500" 
+                  title="Cartão de Débito"
+                ></div>
+                <div 
+                  v-if="summary.paymentMethods?.CASH"
+                  :style="{ width: `${summary.paymentMethods.CASH.percentage}%` }" 
+                  class="bg-amber-500 transition-all duration-500" 
+                  title="Dinheiro"
+                ></div>
+                <div 
+                  v-if="summary.paymentMethods?.TRANSFER"
+                  :style="{ width: `${summary.paymentMethods.TRANSFER.percentage}%` }" 
+                  class="bg-slate-400 transition-all duration-500" 
+                  title="Outros"
+                ></div>
+              </div>
+            </div>
+
+            <!-- Lista de Métodos -->
+            <div class="space-y-2.5 text-xs">
+              <div 
+                v-for="(data, method) in summary.paymentMethods" 
+                :key="method"
+                class="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]"
+              >
+                <div class="flex items-center gap-2">
+                  <span 
+                    class="w-3 h-3 rounded-full shrink-0"
+                    :class="{
+                      'bg-emerald-500': method === 'PIX',
+                      'bg-blue-500': method === 'CREDIT_CARD',
+                      'bg-indigo-500': method === 'DEBIT_CARD',
+                      'bg-amber-500': method === 'CASH',
+                      'bg-slate-400': method === 'TRANSFER'
+                    }"
+                  ></span>
+                  <div>
+                    <span class="font-bold text-slate-800 dark:text-slate-200 block">
+                      {{ getPaymentMethodLabel(method as string) }}
+                    </span>
+                    <span class="text-[10px] text-slate-400">
+                      {{ data.count }} transação(ões)
+                    </span>
+                  </div>
+                </div>
+
+                <div class="text-right">
+                  <span class="font-black text-slate-900 dark:text-white block text-sm">
+                    {{ formatMoney(data.total) }}
+                  </span>
+                  <span class="text-[10px] text-slate-400 font-bold">
+                    {{ data.percentage }}%
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="!summary.paymentMethods || Object.keys(summary.paymentMethods).length === 0" class="text-center py-6 text-slate-400 text-xs">
+                Nenhuma entrada no período para conciliar.
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-4 border-t border-slate-100 dark:border-white/[0.06] text-xs text-slate-400 flex items-center justify-between">
+            <span>Total Conciliado:</span>
+            <span class="font-black text-slate-900 dark:text-white text-sm">{{ formatMoney(summary.totalIncome) }}</span>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- ABA 3: CONTAS A PAGAR & VENCIMENTOS                                       -->
+    <!-- ========================================================================= -->
+    <div v-else-if="activeFinancialTab === 'PAYABLES'" class="space-y-6">
+      
+      <!-- Top 3 KPI Cards Contas a Pagar -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        
+        <!-- Total a Pagar Pendente -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-amber-500/30 bg-amber-500/[0.02] shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Total a Pagar (Pendente)</span>
+            <div class="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-black">
+              <CalendarClock class="w-4 h-4" />
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 truncate">
+              {{ formatMoney(totalPendingAmount) }}
+            </div>
+            <div class="text-[11px] text-slate-400 mt-1">
+              <span class="font-black text-amber-500">{{ pendingPayables.length }}</span> conta(s) pendente(s)
+            </div>
+          </div>
+        </div>
+
+        <!-- Contas Vencidas -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-rose-500/30 bg-rose-500/[0.02] shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-rose-500 uppercase tracking-wider">Contas Vencidas</span>
+            <div class="w-8 h-8 rounded-xl bg-rose-500/15 text-rose-500 flex items-center justify-center font-black">
+              <AlertTriangle class="w-4 h-4" />
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400 truncate">
+              {{ formatMoney(totalOverdueAmount) }}
+            </div>
+            <div class="text-[11px] text-rose-500 mt-1 font-bold">
+              <span>{{ overduePayables.length }}</span> conta(s) em atraso
+            </div>
+          </div>
+        </div>
+
+        <!-- Contas Pagas no Período -->
+        <div class="bg-white dark:bg-[#0e131d] rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-white/[0.08] shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Contas Pagas no Período</span>
+            <div class="w-8 h-8 rounded-xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center font-black">
+              <CheckCircle2 class="w-4 h-4" />
+            </div>
+          </div>
+          <div class="mt-2">
+            <div class="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 truncate">
+              {{ formatMoney(paidExpenses.reduce((acc, c) => acc + (Number(c.amount) || 0), 0)) }}
+            </div>
+            <div class="text-[11px] text-slate-400 mt-1">
+              {{ paidExpenses.length }} despesa(s) quitada(s)
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Barra de Filtros e Busca de Contas a Pagar -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-white dark:bg-[#0e131d] border border-slate-200 dark:border-white/[0.08] shadow-sm">
+        
+        <!-- Input de Busca -->
+        <div class="relative flex-1 max-w-sm">
+          <Search class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input 
+            v-model="payablesSearch" 
+            type="text" 
+            placeholder="Buscar conta a pagar, fornecedor..."
+            class="w-full pl-9 pr-4 py-2 rounded-xl text-xs bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+          />
+        </div>
+
+        <!-- Chips de Vencimento -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button 
+            @click="payablesFilter = 'ALL'"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer"
+            :class="payablesFilter === 'ALL' ? 'bg-amber-500 text-slate-950 font-black' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'"
+          >
+            Todas Pendentes ({{ pendingPayables.length }})
+          </button>
+          <button 
+            @click="payablesFilter = 'OVERDUE'"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1"
+            :class="payablesFilter === 'OVERDUE' ? 'bg-rose-600 text-white font-black' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'"
+          >
+            <span>Vencidas ({{ overduePayables.length }})</span>
+            <span v-if="overduePayables.length > 0" class="w-2 h-2 rounded-full bg-rose-500 animate-pulse"></span>
+          </button>
+          <button 
+            @click="payablesFilter = 'TODAY'"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer"
+            :class="payablesFilter === 'TODAY' ? 'bg-amber-500 text-slate-950 font-black' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'"
+          >
+            Vencendo Hoje ({{ todayPayables.length }})
+          </button>
+          <button 
+            @click="payablesFilter = 'UPCOMING'"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer"
+            :class="payablesFilter === 'UPCOMING' ? 'bg-blue-600 text-white font-black' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5'"
+          >
+            A Vencer Futuras
+          </button>
+
+          <button 
+            @click="openCreateEntryModal('EXPENSE')"
+            class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 text-white font-bold text-xs hover:opacity-95 transition cursor-pointer ml-auto"
+          >
+            <Plus class="w-3.5 h-3.5 stroke-[3]" />
+            <span>Nova Conta a Pagar</span>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Tabela de Contas a Pagar -->
+      <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/[0.08] shadow-sm overflow-hidden">
+        <div class="overflow-x-auto no-scrollbar">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-100 dark:border-white/[0.06] bg-slate-50/50 dark:bg-white/[0.02] text-[11px] font-black uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <th class="py-3.5 px-4">Status &amp; Vencimento</th>
+                <th class="py-3.5 px-4">Descrição / Fornecedor</th>
+                <th class="py-3.5 px-4">Categoria</th>
+                <th class="py-3.5 px-4">Forma Prevista</th>
+                <th class="py-3.5 px-4 text-right">Valor</th>
+                <th class="py-3.5 px-4 text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 dark:divide-white/[0.04] text-xs">
+              <tr 
+                v-for="payable in filteredPayables" 
+                :key="payable.id"
+                @click="openEntryDetail(payable)"
+                class="hover:bg-amber-500/[0.04] dark:hover:bg-amber-500/[0.05] transition cursor-pointer group"
+              >
+                <!-- Status & Vencimento -->
+                <td class="py-3 px-4 whitespace-nowrap">
+                  <span 
+                    class="px-2.5 py-1 rounded-full text-[10px]"
+                    :class="getEntryStatusBadge(payable).class"
+                  >
+                    {{ getEntryStatusBadge(payable).label }}
+                  </span>
+                </td>
+
+                <!-- Descrição -->
+                <td class="py-3 px-4 font-bold text-slate-800 dark:text-slate-200">
+                  <span class="group-hover:text-amber-500 transition-colors">{{ payable.description }}</span>
+                </td>
+
+                <!-- Categoria -->
+                <td class="py-3 px-4 whitespace-nowrap">
+                  <span class="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-white/[0.04] text-[11px] text-slate-600 dark:text-slate-300">
+                    {{ payable.category }}
+                  </span>
+                </td>
+
+                <!-- Forma Prevista -->
+                <td class="py-3 px-4 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                  {{ getPaymentMethodLabel(payable.paymentMethod) }}
+                </td>
+
+                <!-- Valor -->
+                <td class="py-3 px-4 text-right font-black text-rose-600 dark:text-rose-400 text-sm whitespace-nowrap">
+                  - {{ formatMoney(payable.amount) }}
+                </td>
+
+                <!-- Ações -->
+                <td class="py-3 px-4 text-center whitespace-nowrap" @click.stop>
+                  <div class="flex items-center justify-center gap-2">
+                    <button 
+                      @click.stop="handleSettleEntry(payable)"
+                      class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs transition cursor-pointer shadow-sm flex items-center gap-1"
+                    >
+                      <Check class="w-3.5 h-3.5 stroke-[3]" />
+                      <span>Dar Baixa</span>
+                    </button>
+                    <button 
+                      @click.stop="openEntryDetail(payable)"
+                      class="p-1.5 rounded-lg text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer"
+                      title="Ver detalhes"
+                    >
+                      <FileText class="w-4 h-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+
+              <tr v-if="filteredPayables.length === 0">
+                <td colspan="6" class="py-16 text-center text-slate-400">
+                  <div class="max-w-xs mx-auto space-y-2">
+                    <CheckCircle2 class="w-10 h-10 mx-auto text-emerald-500 stroke-1" />
+                    <p class="font-bold text-sm text-slate-800 dark:text-slate-200">Tudo em dia!</p>
+                    <p class="text-xs text-slate-400">Nenhuma conta pendente para os filtros selecionados.</p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL 1: NOVO LANÇAMENTO (RECEITA / DESPESA) COM PLANO DE CONTAS          -->
     <!-- ========================================================================= -->
     <div v-if="isEntryModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">
-      <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 max-h-[90vh] overflow-y-auto no-scrollbar">
-        <!-- Topo Modal -->
+      <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 max-h-[92vh] overflow-y-auto no-scrollbar">
+        
+        <!-- Cabeçalho Modal -->
         <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.08]">
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-2xl flex items-center justify-center font-black" :class="entryForm.type === 'INCOME' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500'">
-              <DollarSign class="w-5 h-5" />
+            <div 
+              class="w-10 h-10 rounded-2xl flex items-center justify-center font-black"
+              :class="entryForm.type === 'INCOME' ? 'bg-emerald-500/15 text-emerald-500' : 'bg-rose-500/15 text-rose-500'"
+            >
+              <Plus class="w-5 h-5 stroke-[2.5]" />
             </div>
             <div>
-              <h2 class="text-lg font-black text-slate-900 dark:text-white">
-                Novo Lançamento Financeiro
-              </h2>
+              <h3 class="text-lg font-black text-slate-900 dark:text-white">
+                Novo Lançamento
+              </h3>
               <p class="text-xs text-slate-500 dark:text-slate-400">
-                Registre uma entrada de receita ou custo operacional no livro caixa
+                {{ entryForm.type === 'INCOME' ? 'Registre uma nova entrada de caixa' : 'Registre uma despesa ou custo operacional' }}
               </p>
             </div>
           </div>
-          <button @click="isEntryModalOpen = false" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer">
+          <button 
+            @click="isEntryModalOpen = false" 
+            class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer"
+          >
             <X class="w-5 h-5" />
           </button>
         </div>
 
         <!-- Seletor Tipo: Receita vs Despesa -->
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 gap-2 p-1 bg-slate-100 dark:bg-white/[0.04] rounded-2xl border border-slate-200 dark:border-white/10">
           <button 
-            type="button" 
-            @click="entryForm.type = 'INCOME'; entryForm.category = 'Serviço'"
-            :class="entryForm.type === 'INCOME' ? 'bg-emerald-500 text-white font-black shadow-lg shadow-emerald-500/20' : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 font-semibold'"
-            class="py-3 rounded-2xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
+            type="button"
+            @click="entryForm.type = 'INCOME'; entryForm.category = 'CORTES'"
+            class="py-2.5 rounded-xl text-xs font-black transition cursor-pointer"
+            :class="entryForm.type === 'INCOME' ? 'bg-emerald-500 text-slate-950 shadow-md' : 'text-slate-500 dark:text-slate-400'"
           >
-            <ArrowUpRight class="w-4 h-4 stroke-[2.5]" />
-            <span>Receita (+)</span>
+            + Receita (Entrada)
           </button>
-
           <button 
-            type="button" 
-            @click="entryForm.type = 'EXPENSE'; entryForm.category = 'Insumos & Descartáveis'"
-            :class="entryForm.type === 'EXPENSE' ? 'bg-rose-500 text-white font-black shadow-lg shadow-rose-500/20' : 'bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 font-semibold'"
-            class="py-3 rounded-2xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition cursor-pointer"
+            type="button"
+            @click="entryForm.type = 'EXPENSE'; entryForm.category = 'ALUGUEL'"
+            class="py-2.5 rounded-xl text-xs font-black transition cursor-pointer"
+            :class="entryForm.type === 'EXPENSE' ? 'bg-rose-500 text-white shadow-md' : 'text-slate-500 dark:text-slate-400'"
           >
-            <ArrowDownRight class="w-4 h-4 stroke-[2.5]" />
-            <span>Despesa (-)</span>
+            - Despesa (Saída)
           </button>
         </div>
 
         <!-- Formulário -->
         <div class="space-y-4">
+          
+          <!-- Plano de Contas Padronizado para Barbearias (optgroup) -->
+          <div>
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Categoria (Plano de Contas)
+            </label>
+            <select 
+              v-model="entryForm.category"
+              class="w-full px-3.5 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
+            >
+              <optgroup v-if="entryForm.type === 'INCOME'" label="Receitas Operacionais" class="font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-[#121824]">
+                <option value="CORTES">Cortes de Cabelo</option>
+                <option value="BARBA">Barba &amp; Terapia</option>
+                <option value="COMBOS">Combos &amp; Pacotes</option>
+                <option value="PRODUTOS_POMADAS">Produtos &amp; Pomadas</option>
+                <option value="BEBIDAS_FRIGOBAR">Bebidas &amp; Frigobar</option>
+                <option value="OUTRAS_RECEITAS">Outras Receitas</option>
+              </optgroup>
+
+              <template v-else>
+                <optgroup label="Custos Operacionais &amp; Insumos" class="font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-[#121824]">
+                  <option value="INSUMOS_DESCARTAVEIS">Lâminas, Golas &amp; Descartáveis</option>
+                  <option value="PRODUTOS_USO_INTERNO">Shampoos &amp; Produtos Lavatório</option>
+                  <option value="REPOSICAO_ESTOQUE">Reposição de Pomadas/Produtos Venda</option>
+                </optgroup>
+                <optgroup label="Despesas Fixas da Barbearia" class="font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-[#121824]">
+                  <option value="ALUGUEL">Aluguel &amp; Condomínio</option>
+                  <option value="ENERGIA_AGUA">Energia Elétrica &amp; Água</option>
+                  <option value="INTERNET_TELEFONE">Internet &amp; Telefone</option>
+                  <option value="SISTEMAS_SOFTWARE">Softwares &amp; Assinaturas</option>
+                </optgroup>
+                <optgroup label="Marketing &amp; Vendas" class="font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-[#121824]">
+                  <option value="TRAFEGO_PAGO">Tráfego Pago &amp; Anúncios</option>
+                  <option value="REDES_SOCIAIS">Social Media &amp; Design</option>
+                </optgroup>
+                <optgroup label="Pessoal &amp; Sócios" class="font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-[#121824]">
+                  <option value="PRO_LABORE">Pró-labore dos Sócios</option>
+                  <option value="ADIANTAMENTOS">Adiantamentos / Vales</option>
+                  <option value="BONIFICACOES">Bonificações &amp; Prêmios</option>
+                </optgroup>
+                <optgroup label="Tributos &amp; Taxas" class="font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-[#121824]">
+                  <option value="IMPOSTOS_MEI_SIMPLES">DAS / Simples Nacional / MEI</option>
+                  <option value="TAXAS_MAQUINAS">Taxas de Cartão &amp; Bancárias</option>
+                </optgroup>
+              </template>
+            </select>
+          </div>
+
           <!-- Descrição -->
           <div>
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-              Descrição do Lançamento *
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Descrição do Lançamento
             </label>
             <input 
               v-model="entryForm.description"
               type="text" 
-              placeholder="Ex: Corte Degrade + Barba, Aluguel do Salão, etc."
-              class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+              placeholder="Ex: Corte degrade com barba, Conta de Luz CEMIG..."
+              class="w-full px-3.5 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
             />
           </div>
 
-          <!-- Categoria Padronizada (Pilar 5) & Valor -->
+          <!-- Grid Valor & Forma de Pagamento -->
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Categoria (Centro de Custo)
-              </label>
-              <select 
-                v-model="entryForm.category"
-                class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
-              >
-                <optgroup label="Receitas Operacionais">
-                  <option value="Serviço">Serviço de Barbearia / Cabelo</option>
-                  <option value="Venda de Produto">Venda de Cosméticos / Frigobar</option>
-                  <option value="Aporte de Capital">Aporte de Capital / Outras Entradas</option>
-                </optgroup>
-                <optgroup label="Custos Operacionais & Insumos">
-                  <option value="Insumos & Descartáveis">Insumos &amp; Descartáveis (Lâminas, Toalhas)</option>
-                  <option value="Manutenção de Equipamentos">Manutenção de Máquinas &amp; Cadeiras</option>
-                  <option value="Lavanderia & Limpeza">Lavanderia &amp; Higienização</option>
-                  <option value="Compra de Bebidas/Produtos">Compra de Estoque / Fornecedores</option>
-                </optgroup>
-                <optgroup label="Despesas Fixas">
-                  <option value="Aluguel & Condomínio">Aluguel &amp; Condomínio</option>
-                  <option value="Energia Elétrica">Energia Elétrica (Luz)</option>
-                  <option value="Água & Saneamento">Água &amp; Saneamento</option>
-                  <option value="Internet, Telefone & TV">Internet, Telefone &amp; TV a Cabo</option>
-                </optgroup>
-                <optgroup label="Marketing & Softwares">
-                  <option value="Assinatura BarblyClub & Softwares">Assinatura BarblyClub &amp; Softwares</option>
-                  <option value="Anúncios Meta (Instagram)">Anúncios Meta (Instagram/Facebook)</option>
-                  <option value="Publicidade & Gráfica">Publicidade &amp; Material Impresso</option>
-                </optgroup>
-                <optgroup label="Pessoal & Sócios">
-                  <option value="Pró-Labore dos Sócios">Pró-Labore dos Sócios</option>
-                  <option value="Salários Recepção/Apoio">Salários Recepção / Limpeza</option>
-                  <option value="Repasse Barbeiro">Repasse Salão-Parceiro</option>
-                </optgroup>
-                <optgroup label="Tributos & Taxas">
-                  <option value="Taxas de Cartão & Maquininha">Taxas de Cartão &amp; Maquininha</option>
-                  <option value="Impostos MEI / Simples">MEI / Simples Nacional / Tributos</option>
-                </optgroup>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Valor Total (R$) *
+              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                Valor Total (R$)
               </label>
               <input 
-                v-model.number="entryForm.amount"
+                v-model="entryForm.amount"
                 type="number" 
                 step="0.01" 
-                min="0.01"
-                class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                min="0"
+                placeholder="0,00"
+                class="w-full px-3.5 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
               />
             </div>
-          </div>
-
-          <!-- Status do Lançamento & Vencimento (Pilar 4) -->
-          <div class="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Status da Operação
-              </label>
-              <select 
-                v-model="entryForm.status"
-                class="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
-              >
-                <option value="PAID">Efetivado (Já Pago no Ato)</option>
-                <option value="PENDING">A Pagar / Agendado (Pendente)</option>
-              </select>
-            </div>
 
             <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                {{ entryForm.status === 'PAID' ? 'Data de Pagamento' : 'Data de Vencimento *' }}
-              </label>
-              <input 
-                v-model="entryForm.dueDate"
-                type="date"
-                class="w-full px-3 py-2.5 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-              />
-            </div>
-          </div>
-
-          <!-- Forma de Pagamento & Barbeiro -->
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 Forma de Pagamento
               </label>
               <select 
                 v-model="entryForm.paymentMethod"
-                class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
+                class="w-full px-3.5 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
               >
-                <option value="PIX" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Pix Instantâneo</option>
-                <option value="CREDIT_CARD" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Cartão de Crédito</option>
-                <option value="DEBIT_CARD" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Cartão de Débito</option>
-                <option value="CASH" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Dinheiro em Espécie</option>
-                <option value="TRANSFER" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Transferência Bancária / TED</option>
+                <option value="PIX">Pix Instantâneo</option>
+                <option value="CREDIT_CARD">Cartão de Crédito</option>
+                <option value="DEBIT_CARD">Cartão de Débito</option>
+                <option value="CASH">Dinheiro em Espécie</option>
+                <option value="TRANSFER">Transferência Bancária</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Status de Pagamento & Vencimento (Pilar 4) -->
+          <div class="grid grid-cols-2 gap-3 p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
+            <div>
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Status do Lançamento
+              </label>
+              <select 
+                v-model="entryForm.status"
+                class="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
+              >
+                <option value="PAID">Pago Imediatamente</option>
+                <option value="PENDING">Pendente / A Pagar</option>
               </select>
             </div>
 
             <div>
-              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
-                Barbeiro Responsável
+              <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Data de Vencimento
               </label>
-              <select 
-                v-model="entryForm.barberId"
-                class="w-full px-3 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
-              >
-                <option value="" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">Nenhum (Salão direto)</option>
-                <option v-for="b in barbers" :key="b.id" :value="b.id" class="bg-white dark:bg-[#121824] text-slate-900 dark:text-slate-100">
-                  {{ b.name }}
-                </option>
-              </select>
+              <input 
+                v-model="entryForm.dueDate"
+                type="date"
+                class="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+              />
             </div>
           </div>
 
-          <!-- Comissão do Barbeiro (se houver barbeiro selecionado) -->
-          <div v-if="entryForm.barberId && entryForm.type === 'INCOME'">
-            <label class="block text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-1.5">
-              Comissão do Barbeiro (R$)
-            </label>
-            <input 
-              v-model.number="entryForm.barberCommission"
-              type="number" 
-              step="0.01" 
-              min="0"
-              class="w-full px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs font-bold text-amber-700 dark:text-amber-300 focus:outline-none"
-            />
-            <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Este valor será creditado no saldo do barbeiro no módulo de Comissões.
-            </p>
+          <!-- Se Receita: Vínculo opcional com Barbeiro e Comissão -->
+          <div v-if="entryForm.type === 'INCOME'" class="p-3.5 rounded-2xl bg-amber-500/[0.04] border border-amber-500/20 space-y-3">
+            <div class="flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400">
+              <Split class="w-3.5 h-3.5" />
+              <span>Vínculo com Profissional (Salão-Parceiro)</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Barbeiro Executor
+                </label>
+                <select 
+                  v-model="entryForm.barberId"
+                  class="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none"
+                >
+                  <option value="">Nenhum (Salão)</option>
+                  <option v-for="b in barbers" :key="b.id" :value="b.id">{{ b.name }}</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                  Comissão (R$)
+                </label>
+                <input 
+                  v-model="entryForm.barberCommission"
+                  type="number" 
+                  step="0.01" 
+                  min="0"
+                  placeholder="0,00"
+                  class="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-black text-amber-600 dark:text-amber-400 placeholder-slate-400 focus:outline-none"
+                />
+              </div>
+            </div>
           </div>
+
         </div>
 
-        <!-- Botões Rodapé -->
+        <!-- Botões do Rodapé -->
         <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-white/[0.08]">
           <button 
             type="button" 
-            @click="isEntryModalOpen = false"
-            class="px-5 py-3 rounded-2xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 font-bold text-xs uppercase tracking-wider cursor-pointer"
+            @click="isEntryModalOpen = false" 
+            class="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer"
           >
             Cancelar
           </button>
           <button 
             type="button" 
-            @click="handleSaveEntry"
+            @click="handleCreateEntrySubmit" 
             :disabled="saving"
-            class="flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-xl shadow-emerald-500/20 cursor-pointer disabled:opacity-50"
+            class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-500/20 disabled:opacity-50"
           >
             <Loader2 v-if="saving" class="w-4 h-4 animate-spin" />
-            <span>Salvar Lançamento</span>
+            <span>{{ saving ? 'Salvando...' : 'Confirmar Lançamento' }}</span>
           </button>
         </div>
+
       </div>
     </div>
 
     <!-- ========================================================================= -->
-    <!-- MODAL 2: DETALHES DO LANÇAMENTO FINANCEIRO                                -->
+    <!-- MODAL 2: DETALHES COMPLETOS DO LANÇAMENTO                                  -->
     <!-- ========================================================================= -->
     <div v-if="isDetailModalOpen && selectedEntryForDetail" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in no-scrollbar">
       <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-xl w-full p-6 sm:p-8 space-y-6 max-h-[92vh] overflow-y-auto no-scrollbar print:p-0 print:shadow-none print:max-w-none">
         
-        <!-- Topo Modal -->
-        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.08] print:hidden">
+        <!-- Cabeçalho do Modal de Detalhes -->
+        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.08] print:border-b-2 print:border-black">
           <div class="flex items-center gap-3">
             <div 
-              class="w-11 h-11 rounded-2xl flex items-center justify-center font-black shadow-md"
+              class="w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg"
               :class="selectedEntryForDetail.type === 'INCOME' 
-                ? 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30' 
-                : 'bg-rose-500/15 text-rose-500 border border-rose-500/30'"
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' 
+                : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'"
             >
-              <ArrowUpRight v-if="selectedEntryForDetail.type === 'INCOME'" class="w-6 h-6" />
-              <ArrowDownRight v-else class="w-6 h-6" />
+              {{ selectedEntryForDetail.type === 'INCOME' ? '+' : '-' }}
             </div>
             <div>
               <div class="flex items-center gap-2">
                 <span 
-                  class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
+                  class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
                   :class="selectedEntryForDetail.type === 'INCOME' 
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' 
-                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'"
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' 
+                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'"
                 >
-                  {{ selectedEntryForDetail.type === 'INCOME' ? 'Receita Operacional' : 'Despesa / Saída' }}
+                  {{ selectedEntryForDetail.type === 'INCOME' ? 'Receita Operacional' : 'Despesa / Custo' }}
                 </span>
                 <span 
-                  class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider"
-                  :class="selectedEntryForDetail.status === 'PAID'
-                    ? 'bg-emerald-500 text-slate-950 font-black'
-                    : 'bg-amber-500/20 text-amber-500 border border-amber-500/30'"
+                  class="px-2.5 py-0.5 rounded-full text-[10px]"
+                  :class="getEntryStatusBadge(selectedEntryForDetail).class"
                 >
-                  {{ selectedEntryForDetail.status === 'PAID' ? 'Pago' : 'Pendente' }}
+                  {{ getEntryStatusBadge(selectedEntryForDetail).label }}
                 </span>
               </div>
-              <h2 class="text-base font-black text-slate-900 dark:text-white mt-0.5">
+              <h3 class="text-xl font-black text-slate-900 dark:text-white mt-1">
                 Detalhes do Lançamento
-              </h2>
+              </h3>
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
-            <button 
-              @click="printEntryDetail"
-              class="p-2 rounded-xl text-slate-400 hover:text-amber-500 transition cursor-pointer"
-              title="Imprimir / Salvar PDF"
-            >
-              <FileText class="w-4 h-4" />
-            </button>
-            <button 
-              @click="isDetailModalOpen = false" 
-              class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
-            >
-              <X class="w-5 h-5" />
-            </button>
-          </div>
+          <button 
+            @click="closeEntryDetail" 
+            class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer print:hidden"
+          >
+            <X class="w-5 h-5" />
+          </button>
         </div>
 
-        <!-- Card de Destaque com Valor e Descrição -->
+        <!-- Bloco Principal do Valor -->
         <div 
-          class="p-5 rounded-2xl border space-y-2 text-center"
-          :class="selectedEntryForDetail.type === 'INCOME'
-            ? 'bg-emerald-500/[0.04] border-emerald-500/20'
-            : 'bg-rose-500/[0.04] border-rose-500/20'"
+          class="p-6 rounded-3xl border text-center space-y-1 relative overflow-hidden"
+          :class="selectedEntryForDetail.type === 'INCOME' 
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300' 
+            : 'bg-rose-500/10 border-rose-500/30 text-rose-700 dark:text-rose-300'"
         >
-          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider">
-            Valor do Lançamento
+          <span class="text-xs uppercase font-black tracking-widest opacity-80">
+            {{ selectedEntryForDetail.type === 'INCOME' ? 'Valor Recebido' : 'Valor a Pagar / Pago' }}
           </span>
-          <div 
-            class="text-3xl sm:text-4xl font-black tracking-tight"
-            :class="selectedEntryForDetail.type === 'INCOME' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'"
-          >
-            {{ selectedEntryForDetail.type === 'INCOME' ? '+' : '-' }} {{ formatMoney(selectedEntryForDetail.amount) }}
+          <div class="text-3xl sm:text-4xl font-black font-sans">
+            {{ formatMoney(selectedEntryForDetail.amount) }}
           </div>
-          <p class="text-sm font-bold text-slate-800 dark:text-slate-200 max-w-md mx-auto">
-            {{ selectedEntryForDetail.description }}
+          <p class="text-xs text-slate-500 dark:text-slate-400 pt-1">
+            Data de competência: {{ formatDate(selectedEntryForDetail.paidAt || selectedEntryForDetail.createdAt) }}
           </p>
         </div>
 
-        <!-- Grade de Detalhes -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-          <!-- Categoria -->
-          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
-            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Categoria</span>
-            <span class="font-bold text-slate-900 dark:text-white mt-1 block">
-              {{ selectedEntryForDetail.category }}
+        <!-- Grade de Metadados -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
+            <span class="text-slate-400 font-bold block mb-1">Categoria Contábil</span>
+            <span class="font-black text-slate-800 dark:text-slate-200 text-sm">
+              {{ selectedEntryForDetail.category || 'Geral' }}
             </span>
           </div>
 
-          <!-- Forma de Pagamento -->
-          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
-            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Forma de Pagamento</span>
-            <span class="font-bold text-slate-900 dark:text-white mt-1 block">
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
+            <span class="text-slate-400 font-bold block mb-1">Forma de Pagamento</span>
+            <span class="font-black text-slate-800 dark:text-slate-200 text-sm flex items-center gap-1.5">
+              <CreditCard class="w-4 h-4 text-amber-500" />
               {{ getPaymentMethodLabel(selectedEntryForDetail.paymentMethod) }}
             </span>
           </div>
 
-          <!-- Data do Registro -->
-          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
-            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Data do Lançamento</span>
-            <span class="font-bold text-slate-900 dark:text-white mt-1 block">
-              {{ formatDate(selectedEntryForDetail.paidAt || selectedEntryForDetail.createdAt) }}
-            </span>
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04] sm:col-span-2">
+            <span class="text-slate-400 font-bold block mb-1">Descrição Detalhada</span>
+            <p class="font-bold text-slate-800 dark:text-slate-200 text-sm">
+              {{ selectedEntryForDetail.description }}
+            </p>
           </div>
 
-          <!-- Data de Vencimento -->
-          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.06]">
-            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Data de Vencimento</span>
-            <span class="font-bold text-slate-900 dark:text-white mt-1 block">
-              {{ selectedEntryForDetail.dueDate ? formatDate(selectedEntryForDetail.dueDate) : 'Liquidado no ato' }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Seção Profissional & Comissão (se houver) -->
-        <div 
-          v-if="selectedEntryForDetail.barberName || (selectedEntryForDetail.barberCommission && selectedEntryForDetail.barberCommission > 0)"
-          class="p-4 rounded-2xl bg-amber-500/[0.05] border border-amber-500/20 space-y-2.5"
-        >
-          <div class="flex items-center justify-between">
-            <span class="text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
-              Vínculo com Profissional-Parceiro
-            </span>
-            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
-              Salão-Parceiro
-            </span>
-          </div>
-
-          <div class="flex items-center justify-between gap-3 text-xs">
-            <div class="flex items-center gap-2">
-              <div class="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 font-bold flex items-center justify-center shrink-0">
-                <User class="w-4 h-4" />
-              </div>
-              <div>
-                <span class="font-black text-slate-900 dark:text-white block">
-                  {{ selectedEntryForDetail.barberName || 'Barbeiro Parceiro' }}
-                </span>
-                <span class="text-[10px] text-slate-400">Comissão apurada no serviço</span>
-              </div>
-            </div>
-
-            <div class="text-right">
-              <span class="text-[10px] text-slate-400 font-bold block uppercase">Comissão Barbeiro</span>
-              <span class="font-black text-amber-500 text-sm">
-                {{ formatMoney(selectedEntryForDetail.barberCommission) }}
+          <!-- Vínculo com Barbeiro se houver comissão -->
+          <div v-if="selectedEntryForDetail.barberName || (selectedEntryForDetail.barberCommission && selectedEntryForDetail.barberCommission > 0)" class="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 sm:col-span-2 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <Users class="w-4 h-4" />
+                <span>Profissional Parceiro (Lei 13.352)</span>
+              </span>
+              <span class="font-black text-amber-700 dark:text-amber-400">
+                Comissão: {{ formatMoney(selectedEntryForDetail.barberCommission) }}
               </span>
             </div>
+            <div class="text-xs text-slate-600 dark:text-slate-300">
+              Profissional: <strong>{{ selectedEntryForDetail.barberName || 'Barbeiro Cadastrado' }}</strong>
+            </div>
           </div>
 
-          <div class="pt-2 border-t border-amber-500/15 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span>Cota Líquida da Barbearia:</span>
-            <span class="font-bold text-emerald-600 dark:text-emerald-400">
-              {{ formatMoney(selectedEntryForDetail.amount - (selectedEntryForDetail.barberCommission || 0)) }}
+          <div v-if="selectedEntryForDetail.dueDate" class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
+            <span class="text-slate-400 font-bold block mb-1">Data de Vencimento</span>
+            <span class="font-bold text-slate-800 dark:text-slate-200">
+              {{ formatDate(selectedEntryForDetail.dueDate) }}
             </span>
           </div>
-        </div>
 
-        <!-- Identificador do Sistema com Botão de Cópia -->
-        <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04] flex items-center justify-between text-[11px]">
-          <span class="text-slate-400 font-mono">ID: {{ selectedEntryForDetail.id }}</span>
-          <button 
-            @click="copyEntryId(selectedEntryForDetail.id)"
-            class="text-amber-500 hover:text-amber-400 font-bold transition cursor-pointer flex items-center gap-1"
-          >
-            <Copy class="w-3 h-3" />
-            <span>Copiar ID</span>
-          </button>
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-100 dark:border-white/[0.04]">
+            <span class="text-slate-400 font-bold block mb-1">ID da Transação</span>
+            <div class="flex items-center gap-1">
+              <span class="font-mono text-[10px] text-slate-600 dark:text-slate-400 truncate">
+                {{ selectedEntryForDetail.id }}
+              </span>
+              <button 
+                @click="copyTransactionId(selectedEntryForDetail.id)"
+                class="p-1 hover:text-amber-500 transition cursor-pointer shrink-0"
+                title="Copiar ID"
+              >
+                <Copy class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
         </div>
 
         <!-- Botões de Ação Rodapé -->
         <div class="flex items-center justify-between gap-3 pt-4 border-t border-slate-100 dark:border-white/[0.08] print:hidden">
           <div class="flex items-center gap-2">
             <button 
-              type="button" 
-              @click="confirmDeleteEntry(selectedEntryForDetail); isDetailModalOpen = false;"
-              class="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+              @click="printDetailModal"
+              class="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 font-bold text-xs transition cursor-pointer"
             >
-              <Trash2 class="w-4 h-4" />
-              <span>Excluir</span>
+              <Printer class="w-4 h-4 text-slate-500" />
+              <span>Imprimir</span>
             </button>
-
+            
             <button 
               v-if="selectedEntryForDetail.status === 'PENDING'"
-              type="button" 
-              @click="handleSettleEntry(selectedEntryForDetail); isDetailModalOpen = false;"
-              class="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-md"
+              @click="handleSettleEntry(selectedEntryForDetail)"
+              class="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs transition cursor-pointer shadow-md shadow-emerald-500/20"
             >
               <Check class="w-4 h-4 stroke-[3]" />
               <span>Dar Baixa (Pagar)</span>
             </button>
+
+            <button 
+              @click="confirmDeleteEntry(selectedEntryForDetail.id, selectedEntryForDetail.description)"
+              class="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 font-bold text-xs transition cursor-pointer"
+            >
+              <Trash2 class="w-4 h-4" />
+              <span>Excluir</span>
+            </button>
           </div>
 
           <button 
-            type="button" 
-            @click="isDetailModalOpen = false"
-            class="px-6 py-2.5 rounded-2xl bg-slate-100 dark:bg-white/5 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-white/10 font-black text-xs uppercase tracking-wider transition cursor-pointer"
+            @click="closeEntryDetail"
+            class="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold text-xs hover:opacity-90 transition cursor-pointer"
           >
             Fechar
           </button>
@@ -1877,10 +2253,9 @@ onMounted(() => {
     <!-- ========================================================================= -->
     <div v-if="isDeleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">
       <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-sm w-full p-6 space-y-5 text-center">
-        <div class="w-12 h-12 rounded-2xl bg-rose-500/15 text-rose-500 mx-auto flex items-center justify-center">
-          <AlertTriangle class="w-6 h-6" />
+        <div class="w-12 h-12 rounded-2xl bg-rose-500/15 text-rose-500 flex items-center justify-center mx-auto">
+          <Trash2 class="w-6 h-6" />
         </div>
-
         <div>
           <h3 class="text-base font-black text-slate-900 dark:text-white">Confirmar Exclusão</h3>
           <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -1890,20 +2265,21 @@ onMounted(() => {
             {{ deleteTargetTitle }}
           </p>
         </div>
-
-        <div class="flex items-center justify-center gap-3 pt-2">
+        <div class="flex items-center justify-center gap-3">
           <button 
-            @click="isDeleteModalOpen = false"
-            class="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 font-bold text-xs uppercase tracking-wider cursor-pointer"
+            type="button" 
+            @click="isDeleteModalOpen = false" 
+            class="px-4 py-2 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer"
           >
             Cancelar
           </button>
           <button 
-            @click="executeDelete"
+            type="button" 
+            @click="executeDeleteEntry" 
             :disabled="saving"
-            class="px-5 py-2.5 rounded-xl bg-rose-600 text-white font-black text-xs uppercase tracking-wider hover:bg-rose-700 transition cursor-pointer shadow-lg shadow-rose-600/20 disabled:opacity-50"
+            class="px-5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs transition cursor-pointer shadow-lg shadow-rose-500/20 disabled:opacity-50"
           >
-            Excluir
+            {{ saving ? 'Excluindo...' : 'Sim, Excluir' }}
           </button>
         </div>
       </div>
@@ -1924,13 +2300,13 @@ onMounted(() => {
 :deep(.dark select),
 .dark select,
 .dark select option,
-.dark option {
-  color-scheme: dark !important;
+.dark select optgroup {
   background-color: #121824 !important;
-  color: #f8fafc !important;
+  color: #f1f5f9 !important;
 }
 
-select option {
+select option,
+select optgroup {
   background-color: #ffffff;
   color: #0f172a;
 }
@@ -1948,7 +2324,7 @@ select option {
   body * {
     visibility: hidden;
   }
-  .print\\:block, .print\\:block * {
+  .print\:block, .print\:block * {
     visibility: visible;
   }
 }
