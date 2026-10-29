@@ -935,9 +935,10 @@ export const api = {
     description: string;
     amount: number;
     paymentMethod?: string;
-  forceOverlap?: boolean;
+    forceOverlap?: boolean;
     barberId?: string;
     barberCommission?: number;
+    status?: 'PAID' | 'PENDING';
     dueDate?: string;
   }): Promise<{ success: boolean; entry: FinancialEntry; message: string }> {
     const res = await fetch('/api/financial/entries', {
