@@ -29,9 +29,11 @@ import {
   Phone, 
   Mail, 
   Wallet,
-  ArrowRight
+  ArrowRight,
+  History,
+  Eye
 } from 'lucide-vue-next';
-import { api, BarberSplitSummary } from '../services/api';
+import { api, BarberSplitSummary, FinancialEntry } from '../services/api';
 import { useAuthStore } from '../stores/auth';
 import { useToastStore } from '../stores/toast';
 
@@ -193,6 +195,98 @@ const receiptData = ref<{
 } | null>(null);
 
 const copiedPix = ref(false);
+
+// Modal de Extrato e Histórico Detalhado do Barbeiro
+const isHistoryModalOpen = ref(false);
+const loadingHistory = ref(false);
+const selectedBarberForHistory = ref<BarberSplitSummary | null>(null);
+const barberHistoryEntries = ref<FinancialEntry[]>([]);
+const historyTypeFilter = ref<'ALL' | 'INCOME' | 'EXPENSE'>('ALL');
+const historySearchQuery = ref('');
+
+async function openBarberHistory(split: BarberSplitSummary) {
+  playPopSound();
+  selectedBarberForHistory.value = split;
+  isHistoryModalOpen.value = true;
+  loadingHistory.value = true;
+  historyTypeFilter.value = 'ALL';
+  historySearchQuery.value = '';
+  try {
+    const dates = computePeriodDates();
+    const res = await api.getBarberCommissionEntries(split.barberId, dates);
+    barberHistoryEntries.value = res || [];
+  } catch (err: any) {
+    console.error('[Load Barber History Error]', err);
+    toast.error('Erro ao carregar histórico de atendimentos do profissional.');
+    barberHistoryEntries.value = [];
+  } finally {
+    loadingHistory.value = false;
+  }
+}
+
+const filteredHistoryEntries = computed(() => {
+  let list = [...barberHistoryEntries.value];
+  if (historyTypeFilter.value !== 'ALL') {
+    list = list.filter(e => e.type === historyTypeFilter.value);
+  }
+  if (historySearchQuery.value.trim()) {
+    const q = historySearchQuery.value.toLowerCase().trim();
+    list = list.filter(e => 
+      (e.description && e.description.toLowerCase().includes(q)) ||
+      (e.category && e.category.toLowerCase().includes(q)) ||
+      (e.paymentMethod && e.paymentMethod.toLowerCase().includes(q))
+    );
+  }
+  return list;
+});
+
+const historySummary = computed(() => {
+  const entries = barberHistoryEntries.value;
+  const servicesAndProducts = entries.filter(e => e.type === 'INCOME');
+  const payouts = entries.filter(e => e.type === 'EXPENSE');
+
+  const totalGross = servicesAndProducts.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+  const totalCommissionsEarned = servicesAndProducts.reduce((acc, e) => acc + (Number(e.barberCommission) || 0), 0);
+  const totalPaid = payouts.reduce((acc, e) => acc + (Number(e.amount) || 0), 0);
+  const salonRetained = Math.max(0, totalGross - totalCommissionsEarned);
+  const pending = Math.max(0, totalCommissionsEarned - totalPaid);
+
+  return {
+    totalGross,
+    totalCommissionsEarned,
+    totalPaid,
+    salonRetained,
+    pending,
+    countServices: servicesAndProducts.filter(e => e.category === 'Serviço').length,
+    countProducts: servicesAndProducts.filter(e => e.category === 'Venda de Produto').length,
+    countPayouts: payouts.length,
+  };
+});
+
+function openPayoutFromHistory() {
+  if (!selectedBarberForHistory.value) return;
+  const b = selectedBarberForHistory.value;
+  isHistoryModalOpen.value = false;
+  openPayoutModal(b);
+}
+
+function printHistory() {
+  playPopSound();
+  window.print();
+}
+
+function formatDate(dateStr?: string | null) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('pt-BR', { 
+    day: '2-digit', 
+    month: '2-digit', 
+    year: '2-digit',
+    hour: '2-digit', 
+    minute: '2-digit' 
+  });
+}
+
 
 // Formatação
 function formatMoney(val?: number) {
@@ -710,8 +804,12 @@ function exportToCsv() {
           : 'border-slate-200 dark:border-white/[0.08]'"
       >
         <div>
-          <!-- Topo do Card: Avatar, Nome e Cadeira -->
-          <div class="flex items-start justify-between gap-3 pb-3.5 border-b border-slate-100 dark:border-white/[0.06]">
+          <!-- Topo do Card: Avatar, Nome e Cadeira (Clicável p/ Extrato) -->
+          <div 
+            @click="openBarberHistory(split)"
+            class="flex items-start justify-between gap-3 pb-3.5 border-b border-slate-100 dark:border-white/[0.06] cursor-pointer group/card-head hover:opacity-90 transition"
+            title="Clique para abrir extrato detalhado de atendimentos e comissões"
+          >
             <div class="flex items-center gap-3">
               <div class="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 shrink-0">
                 <img 
@@ -827,6 +925,15 @@ function exportToCsv() {
             <span>Pagar Pix</span>
           </button>
 
+          <!-- Botão Extrato Detalhado de Atendimentos -->
+          <button 
+            @click="openBarberHistory(split)"
+            class="p-2.5 rounded-2xl border border-slate-200 dark:border-white/10 hover:border-amber-500 bg-white dark:bg-white/[0.03] text-slate-600 dark:text-slate-300 hover:text-amber-500 transition cursor-pointer"
+            title="Ver Extrato Detalhado de Atendimentos & Comissões"
+          >
+            <History class="w-4 h-4" />
+          </button>
+
           <!-- Botão Recibo Formal Lei 13.352 -->
           <button 
             @click="openReceipt(split)"
@@ -879,7 +986,9 @@ function exportToCsv() {
             <tr 
               v-for="split in filteredSplits" 
               :key="split.barberId"
-              class="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition"
+              class="hover:bg-slate-50/80 dark:hover:bg-white/[0.02] transition cursor-pointer group"
+              @click="openBarberHistory(split)"
+              title="Clique para abrir histórico detalhado de atendimentos"
             >
               <!-- Barbeiro -->
               <td class="py-3.5 px-4">
@@ -951,7 +1060,15 @@ function exportToCsv() {
               <td class="py-3.5 px-4 text-center">
                 <div class="flex items-center justify-center gap-1.5">
                   <button 
-                    @click="openPayoutModal(split)"
+                    @click.stop="openBarberHistory(split)"
+                    class="p-1.5 rounded-xl text-slate-400 hover:text-amber-500 hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer"
+                    title="Ver Extrato e Histórico de Atendimentos"
+                  >
+                    <History class="w-4 h-4" />
+                  </button>
+
+                  <button 
+                    @click.stop="openPayoutModal(split)"
                     :disabled="(Number(split.pendingPayout) || 0) <= 0.05"
                     class="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500 hover:text-white font-black text-[11px] transition cursor-pointer disabled:opacity-30 disabled:pointer-events-none"
                     title="Dar baixa de repasse Pix"
@@ -960,7 +1077,7 @@ function exportToCsv() {
                   </button>
 
                   <button 
-                    @click="openReceipt(split)"
+                    @click.stop="openReceipt(split)"
                     class="p-1.5 rounded-xl text-slate-400 hover:text-amber-500 transition cursor-pointer"
                     title="Emitir Comprovante Lei Salão-Parceiro"
                   >
@@ -1281,6 +1398,291 @@ function exportToCsv() {
       </div>
     </div>
 
+
+    <!-- ========================================================================= -->
+    <!-- MODAL 3: HISTÓRICO & EXTRATO DETALHADO DE PRODUÇÃO DO BARBEIRO             -->
+    <!-- ========================================================================= -->
+    <div v-if="isHistoryModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-sm animate-fade-in no-scrollbar">
+      <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-4xl w-full flex flex-col max-h-[92vh] overflow-hidden print:p-0 print:border-none print:shadow-none print:max-w-none">
+        
+        <!-- Topo / Cabeçalho do Extrato -->
+        <div class="p-5 sm:p-6 border-b border-slate-100 dark:border-white/[0.08] flex items-center justify-between gap-4 print:pb-2">
+          <div class="flex items-center gap-3.5">
+            <div class="w-12 h-12 rounded-2xl overflow-hidden bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 shrink-0">
+              <img 
+                v-if="selectedBarberForHistory?.avatarUrl" 
+                :src="selectedBarberForHistory.avatarUrl" 
+                :alt="selectedBarberForHistory.barberName"
+                class="w-full h-full object-cover"
+              />
+              <div v-else class="w-full h-full flex items-center justify-center font-black text-base text-amber-500 bg-amber-500/10">
+                {{ selectedBarberForHistory?.barberName?.charAt(0) }}
+              </div>
+            </div>
+
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <h2 class="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                  {{ selectedBarberForHistory?.barberName }}
+                </h2>
+                <span class="px-2 py-0.5 rounded-lg text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                  {{ selectedBarberForHistory?.commissionRate || 50 }}% Comissão
+                </span>
+                <span v-if="selectedBarberForHistory?.chair" class="text-xs text-slate-400 font-medium">
+                  • {{ selectedBarberForHistory?.chair }}
+                </span>
+              </div>
+              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Extrato analítico de atendimentos, comissões apuradas e repasses
+              </p>
+            </div>
+          </div>
+
+          <!-- Ações Topo: Imprimir e Fechar -->
+          <div class="flex items-center gap-2 print:hidden">
+            <button 
+              @click="printHistory"
+              class="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 hover:border-amber-500 text-xs font-bold text-slate-700 dark:text-slate-200 hover:text-amber-500 transition cursor-pointer"
+              title="Imprimir extrato do barbeiro"
+            >
+              <Printer class="w-3.5 h-3.5" />
+              <span class="hidden sm:inline">Imprimir</span>
+            </button>
+            <button 
+              @click="isHistoryModalOpen = false" 
+              class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+            >
+              <X class="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Conteúdo do Modal (Scrollável) -->
+        <div class="p-5 sm:p-6 overflow-y-auto space-y-5 no-scrollbar flex-1" id="printable-history">
+          
+          <!-- Faixa de Mini-KPIs do Barbeiro -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <!-- Produção Bruta -->
+            <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Produção Bruta</span>
+              <span class="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1 block">
+                {{ formatMoney(historySummary.totalGross) }}
+              </span>
+              <span class="text-[10px] text-slate-400 block mt-0.5">
+                {{ historySummary.countServices }} serv. • {{ historySummary.countProducts }} prod.
+              </span>
+            </div>
+
+            <!-- Cota Salão Retida -->
+            <div class="p-3.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/20">
+              <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">Cota Barbearia</span>
+              <span class="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 mt-1 block">
+                {{ formatMoney(historySummary.salonRetained) }}
+              </span>
+              <span class="text-[10px] text-emerald-700/70 dark:text-emerald-300/70 block mt-0.5">
+                Retenção salão-parceiro
+              </span>
+            </div>
+
+            <!-- Comissões Geradas -->
+            <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Comissão Total</span>
+              <span class="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1 block">
+                {{ formatMoney(historySummary.totalCommissionsEarned) }}
+              </span>
+              <span class="text-[10px] text-teal-600 dark:text-teal-400 block mt-0.5">
+                {{ formatMoney(historySummary.totalPaid) }} já pago
+              </span>
+            </div>
+
+            <!-- Saldo a Pagar -->
+            <div class="p-3.5 rounded-2xl border"
+              :class="historySummary.pending > 0.05 
+                ? 'bg-amber-500/10 border-amber-500/30' 
+                : 'bg-teal-500/10 border-teal-500/20'"
+            >
+              <span class="text-[10px] font-black uppercase tracking-wider block"
+                :class="historySummary.pending > 0.05 ? 'text-amber-600 dark:text-amber-400' : 'text-teal-600 dark:text-teal-400'"
+              >
+                {{ historySummary.pending > 0.05 ? 'Saldo a Pagar' : 'Quitado' }}
+              </span>
+              <span class="text-base sm:text-lg font-black mt-1 block"
+                :class="historySummary.pending > 0.05 ? 'text-amber-600 dark:text-amber-400' : 'text-teal-600 dark:text-teal-400'"
+              >
+                {{ formatMoney(historySummary.pending) }}
+              </span>
+              <span class="text-[10px] text-slate-400 block mt-0.5">
+                {{ historySummary.pending > 0.05 ? 'Pendente de acerto' : 'Tudo em dia' }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Barra de Filtros e Busca de Lançamentos -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 print:hidden">
+            <!-- Abas Rápidas -->
+            <div class="flex items-center gap-1 p-1 bg-slate-100 dark:bg-white/[0.03] rounded-xl border border-slate-200 dark:border-white/10 text-xs shrink-0">
+              <button 
+                @click="historyTypeFilter = 'ALL'"
+                :class="historyTypeFilter === 'ALL' ? 'bg-white dark:bg-[#121824] shadow-sm text-slate-900 dark:text-white font-bold' : 'text-slate-500 dark:text-slate-400'"
+                class="px-3 py-1 rounded-lg transition cursor-pointer"
+              >
+                Todos ({{ barberHistoryEntries.length }})
+              </button>
+              <button 
+                @click="historyTypeFilter = 'INCOME'"
+                :class="historyTypeFilter === 'INCOME' ? 'bg-white dark:bg-[#121824] shadow-sm text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-500 dark:text-slate-400'"
+                class="px-3 py-1 rounded-lg transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Scissors class="w-3 h-3" />
+                <span>Atendimentos / Vendas</span>
+              </button>
+              <button 
+                @click="historyTypeFilter = 'EXPENSE'"
+                :class="historyTypeFilter === 'EXPENSE' ? 'bg-white dark:bg-[#121824] shadow-sm text-amber-500 font-bold' : 'text-slate-500 dark:text-slate-400'"
+                class="px-3 py-1 rounded-lg transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Split class="w-3 h-3" />
+                <span>Repasses Realizados</span>
+              </button>
+            </div>
+
+            <!-- Busca Textual -->
+            <div class="relative flex-1 max-w-xs">
+              <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input 
+                v-model="historySearchQuery"
+                type="text"
+                placeholder="Buscar cliente ou serviço..."
+                class="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+            </div>
+          </div>
+
+          <!-- Loading -->
+          <div v-if="loadingHistory" class="py-12 flex flex-col items-center justify-center text-slate-400">
+            <Loader2 class="w-8 h-8 animate-spin text-amber-500 mb-2" />
+            <span class="text-xs">Carregando histórico analítico...</span>
+          </div>
+
+          <!-- Estado Vazio -->
+          <div v-else-if="filteredHistoryEntries.length === 0" class="p-8 text-center rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/[0.06]">
+            <Calendar class="w-8 h-8 text-slate-400 mx-auto mb-2 opacity-50" />
+            <h4 class="text-xs font-black text-slate-900 dark:text-white">Nenhum atendimento ou repasse registrado</h4>
+            <p class="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
+              Não constam lançamentos para o profissional no período filtrado.
+            </p>
+          </div>
+
+          <!-- Tabela de Lançamentos do Barbeiro -->
+          <div v-else class="rounded-2xl border border-slate-200 dark:border-white/10 overflow-hidden">
+            <div class="overflow-x-auto no-scrollbar max-h-[380px]">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 dark:bg-white/[0.02] border-b border-slate-200 dark:border-white/10 text-[10px] font-black text-slate-400 uppercase tracking-wider sticky top-0 backdrop-blur-sm z-10">
+                  <tr>
+                    <th class="py-3 px-3.5">Data / Hora</th>
+                    <th class="py-3 px-3.5">Tipo</th>
+                    <th class="py-3 px-3.5">Descrição / Cliente</th>
+                    <th class="py-3 px-3.5 text-center">Pagamento</th>
+                    <th class="py-3 px-3.5 text-right">Valor Total</th>
+                    <th class="py-3 px-3.5 text-right font-black text-emerald-600 dark:text-emerald-400">Comissão Gerada</th>
+                    <th class="py-3 px-3.5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-white/[0.04]">
+                  <tr 
+                    v-for="entry in filteredHistoryEntries" 
+                    :key="entry.id"
+                    class="hover:bg-slate-50/70 dark:hover:bg-white/[0.02] transition"
+                  >
+                    <!-- Data -->
+                    <td class="py-2.5 px-3.5 whitespace-nowrap text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                      {{ formatDate(entry.paidAt || entry.createdAt) }}
+                    </td>
+
+                    <!-- Tipo -->
+                    <td class="py-2.5 px-3.5 whitespace-nowrap">
+                      <span v-if="entry.type === 'INCOME'" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                        <Scissors class="w-3 h-3" />
+                        <span>{{ entry.category || 'Atendimento' }}</span>
+                      </span>
+                      <span v-else class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-amber-500/10 text-amber-500">
+                        <Split class="w-3 h-3" />
+                        <span>Repasse Pix</span>
+                      </span>
+                    </td>
+
+                    <!-- Descrição & Cliente -->
+                    <td class="py-2.5 px-3.5">
+                      <span class="font-bold text-slate-800 dark:text-slate-200 block truncate max-w-[280px]" :title="entry.description">
+                        {{ entry.description }}
+                      </span>
+                    </td>
+
+                    <!-- Forma de Pagamento -->
+                    <td class="py-2.5 px-3.5 text-center whitespace-nowrap">
+                      <span class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300">
+                        {{ entry.paymentMethod || 'PIX' }}
+                      </span>
+                    </td>
+
+                    <!-- Valor Bruto -->
+                    <td class="py-2.5 px-3.5 text-right font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                      {{ formatMoney(entry.amount) }}
+                    </td>
+
+                    <!-- Comissão -->
+                    <td class="py-2.5 px-3.5 text-right font-black whitespace-nowrap">
+                      <span v-if="entry.type === 'INCOME'" class="text-emerald-600 dark:text-emerald-400">
+                        + {{ formatMoney(entry.barberCommission) }}
+                      </span>
+                      <span v-else class="text-slate-400">
+                        - {{ formatMoney(entry.amount) }} (Pago)
+                      </span>
+                    </td>
+
+                    <!-- Status -->
+                    <td class="py-2.5 px-3.5 text-center whitespace-nowrap">
+                      <span class="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase">
+                        Quitado
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Rodapé do Modal -->
+        <div class="p-4 sm:p-5 border-t border-slate-100 dark:border-white/[0.08] bg-slate-50/50 dark:bg-white/[0.01] flex items-center justify-between gap-3 flex-wrap print:hidden">
+          <div class="text-xs text-slate-500 dark:text-slate-400">
+            Total exibido: <strong class="text-slate-800 dark:text-slate-200">{{ filteredHistoryEntries.length }} lançamento(s)</strong>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button 
+              type="button" 
+              @click="isHistoryModalOpen = false"
+              class="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-600 dark:text-slate-300 font-bold text-xs uppercase tracking-wider hover:bg-slate-200 dark:hover:bg-white/10 transition cursor-pointer"
+            >
+              Fechar
+            </button>
+
+            <button 
+              v-if="historySummary.pending > 0.05"
+              type="button" 
+              @click="openPayoutFromHistory"
+              class="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-95 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/20 cursor-pointer"
+            >
+              <Split class="w-3.5 h-3.5" />
+              <span>Pagar Saldo ({{ formatMoney(historySummary.pending) }})</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1306,16 +1708,19 @@ function exportToCsv() {
   body * {
     visibility: hidden;
   }
-  #printable-receipt, #printable-receipt * {
+  #printable-receipt, #printable-receipt *,
+  #printable-history, #printable-history * {
     visibility: visible;
   }
-  #printable-receipt {
+  #printable-receipt, #printable-history {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
     margin: 0;
     padding: 20px;
+    background: white !important;
+    color: black !important;
   }
 }
 </style>

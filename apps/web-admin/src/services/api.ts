@@ -1015,6 +1015,21 @@ export const api = {
     return resData;
   },
 
+  async getBarberCommissionEntries(
+    barberId: string,
+    params?: { startDate?: string; endDate?: string }
+  ): Promise<FinancialEntry[]> {
+    const query = new URLSearchParams();
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await fetch(`/api/financial/barber-splits/${barberId}/entries${qs}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Falha ao carregar extrato de comissões do profissional');
+    return res.json();
+  },
+
   // ================= PRODUCTS & PDV API =================
   async getProducts(category?: string, includeInactive: boolean = true): Promise<Product[]> {
     const params = new URLSearchParams();

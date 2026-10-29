@@ -18,7 +18,7 @@ async function syncCompletedAppointmentsToFinancial(orgId: string) {
 
     const completedApts = await prisma.appointment.findMany({
       where: { orgId, status: 'COMPLETED' },
-      include: { service: true, customer: true, barber: true, transaction: true },
+      include: { service: true, customer: true, barber: { include: { user: true } }, transaction: true },
     });
 
     for (const apt of completedApts) {
@@ -43,6 +43,19 @@ async function syncCompletedAppointmentsToFinancial(orgId: string) {
           INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
           VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, ?, ?, NOW())
         `, finId, orgId, desc, finalPrice, payMethod, apt.barberId, commAmount, apt.endsAt || apt.startsAt, apt.startsAt);
+
+        // Se o pagamento foi processado via split automático no gateway, já registra a despesa de repasse quitada
+        if (apt.transaction && apt.transaction.status === 'CONFIRMED' && commAmount > 0 && apt.barberId) {
+          const splitFinId = 'fin_split_' + apt.id;
+          const existingSplit: any[] = await prisma.$queryRawUnsafe('SELECT id FROM financial_entries WHERE id = ?', splitFinId);
+          if (existingSplit.length === 0) {
+            const splitDesc = `Repasse Automático (Split) - ${apt.barber?.user?.name || 'Profissional'}`;
+            await prisma.$queryRawUnsafe(`
+              INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
+              VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, ?, 'PAID', ?, 0, ?, ?, NOW())
+            `, splitFinId, orgId, splitDesc, commAmount, payMethod, apt.barberId, apt.endsAt || apt.startsAt, apt.startsAt);
+          }
+        }
       }
     }
   } catch (err: any) {
@@ -573,6 +586,62 @@ export async function financialRoutes(app: FastifyInstance) {
     } catch (err: any) {
       console.error('[Barber Splits error]', err);
       return reply.status(500).send({ error: 'Erro ao calcular repasses dos barbeiros.' });
+    }
+  });
+
+  // GET /api/financial/barber-splits/:barberId/entries - Extrato detalhado de comissões e repasses de um barbeiro
+  app.get('/financial/barber-splits/:barberId/entries', async (request: FastifyRequest<{ Params: { barberId: string }; Querystring: { startDate?: string; endDate?: string } }>, reply: FastifyReply) => {
+    try {
+      await request.jwtVerify();
+    } catch {
+      return reply.status(401).send({ error: 'Token inválido' });
+    }
+
+    const payload = (request as any).user;
+    const orgId = payload.orgId;
+    const { barberId } = request.params;
+    const { startDate, endDate } = request.query;
+
+    try {
+      let query = `
+        SELECT 
+          f.id,
+          f.type,
+          f.category,
+          f.description,
+          f.amount,
+          f.paymentMethod,
+          f.status,
+          f.barberId,
+          f.barberCommission,
+          f.paidAt,
+          f.dueDate,
+          f.createdAt
+        FROM financial_entries f
+        WHERE f.orgId = ? AND f.barberId = ?
+      `;
+      const params: any[] = [orgId, barberId];
+
+      if (startDate) {
+        query += ` AND COALESCE(f.paidAt, f.createdAt) >= ?`;
+        params.push(new Date(startDate));
+      }
+      if (endDate) {
+        query += ` AND COALESCE(f.paidAt, f.createdAt) <= ?`;
+        params.push(new Date(endDate));
+      }
+
+      query += ` ORDER BY COALESCE(f.paidAt, f.createdAt) DESC, f.createdAt DESC`;
+
+      const entries: any[] = await prisma.$queryRawUnsafe(query, ...params);
+      return entries.map(e => ({
+        ...e,
+        amount: Number(e.amount) || 0,
+        barberCommission: Number(e.barberCommission) || 0,
+      }));
+    } catch (err: any) {
+      console.error('[Barber entries error]', err);
+      return reply.status(500).send({ error: 'Erro ao buscar extrato do profissional.' });
     }
   });
 
