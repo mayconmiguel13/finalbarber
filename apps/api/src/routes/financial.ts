@@ -50,6 +50,13 @@ export async function syncCompletedAppointmentsToFinancial(orgId: string) {
           INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
           VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, ?, ?, ?, NOW())
         `, finId, orgId, desc, finalPrice, payMethod, apt.barberId, commAmount, apt.endsAt || apt.startsAt, apt.startsAt, apt.startsAt);
+      } else {
+        // Sincronizar barberCommission caso divirja devido ao desconto de taxas da maquininha
+        await prisma.$queryRawUnsafe(`
+          UPDATE financial_entries 
+          SET barberCommission = ?, updatedAt = NOW()
+          WHERE id = ? AND orgId = ? AND barberCommission != ?
+        `, commAmount, finId, orgId, commAmount);
       }
 
       // 2. Garantir DESPESA DE REPASSE da Comissão ao Barbeiro
@@ -758,20 +765,20 @@ export async function financialRoutes(app: FastifyInstance) {
       }
 
       // Se restou valor ou se não havia lançamentos individuais pendentes
+      const payoutId = 'fin_pay_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
       if (remainingToPay > 0.01) {
-        const id = 'fin_pay_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
         const desc = `Repasse de Comissões Pix (Lei 13.352) - ${barber.user.name}`;
         await prisma.$queryRawUnsafe(`
           INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
           VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, ?, 'PAID', ?, 0, NOW(), NOW(), NOW(), NOW())
-        `, id, orgId, desc, remainingToPay, body.paymentMethod || 'PIX', barberId);
+        `, payoutId, orgId, desc, remainingToPay, body.paymentMethod || 'PIX', barberId);
       }
 
       return {
         success: true,
         message: `Repasse de R$ ${amount.toFixed(2)} registrado com sucesso para ${barber.user.name}!`,
         entry: {
-          id,
+          id: payoutId,
           barberId,
           barberName: barber.user.name,
           amount,
