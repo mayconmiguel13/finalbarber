@@ -19,6 +19,9 @@ export interface CreatePixParams {
   barberCommissionRate?: number;
   salonWalletId?: string;
   barberWalletId?: string;
+  autoSplitEnabled?: boolean;
+  apiKey?: string;
+  environment?: 'SANDBOX' | 'PRODUCTION';
 }
 
 export interface PixPaymentResult {
@@ -36,29 +39,83 @@ export interface PixPaymentResult {
 }
 
 class AsaasService {
-  private apiUrl: string;
-  private apiKey: string;
+  private defaultApiUrl: string;
+  private defaultApiKey: string;
 
   constructor() {
-    this.apiUrl = process.env.ASAAS_API_URL || 'https://sandbox.asaas.com/api/v3';
-    this.apiKey = process.env.ASAAS_API_KEY || '';
+    this.defaultApiUrl = process.env.ASAAS_API_URL || 'https://sandbox.asaas.com/api/v3';
+    this.defaultApiKey = process.env.ASAAS_API_KEY || '';
   }
 
-  public isConfigured(): boolean {
-    return Boolean(this.apiKey && this.apiKey.trim() !== '' && this.apiKey !== 'your-asaas-api-key');
+  public isConfigured(apiKey?: string): boolean {
+    const key = apiKey || this.defaultApiKey;
+    return Boolean(key && key.trim() !== '' && key !== 'your-asaas-api-key');
+  }
+
+  /**
+   * Tests connection with Asaas API
+   */
+  public async testConnection(apiKey: string, environment: 'SANDBOX' | 'PRODUCTION' = 'SANDBOX'): Promise<{ success: boolean; balance?: number; error?: string }> {
+    const cleanKey = apiKey?.trim();
+    if (!cleanKey) {
+      return { success: false, error: 'Chave de API não informada.' };
+    }
+
+    const baseUrl = environment === 'PRODUCTION' ? 'https://api.asaas.com/v3' : 'https://sandbox.asaas.com/api/v3';
+
+    try {
+      const res = await fetch(`${baseUrl}/finance/balance`, {
+        method: 'GET',
+        headers: {
+          'access_token': cleanKey,
+        },
+      });
+
+      if (res.ok) {
+        const data: any = await res.json();
+        return {
+          success: true,
+          balance: Number(data.totalBalance ?? data.balance ?? 0),
+        };
+      } else {
+        const errData: any = await res.json().catch(() => ({}));
+        const msg = errData?.errors?.[0]?.description || `Erro HTTP ${res.status}: ${res.statusText}`;
+        return {
+          success: false,
+          error: res.status === 401
+            ? `Chave de API inválida ou sem permissão no ambiente ${environment === 'PRODUCTION' ? 'Produção' : 'Sandbox'}.`
+            : msg,
+        };
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        error: `Não foi possível conectar com o servidor do Asaas: ${err.message}`,
+      };
+    }
   }
 
   /**
    * Creates or resolves customer in Asaas
    */
-  public async getOrCreateAsaasCustomer(name: string, phone: string): Promise<string | null> {
-    if (!this.isConfigured()) return null;
+  public async getOrCreateAsaasCustomer(
+    name: string,
+    phone: string,
+    apiKey?: string,
+    environment?: 'SANDBOX' | 'PRODUCTION'
+  ): Promise<string | null> {
+    const activeKey = apiKey || this.defaultApiKey;
+    if (!this.isConfigured(activeKey)) return null;
+
+    const baseUrl = environment === 'PRODUCTION'
+      ? 'https://api.asaas.com/v3'
+      : (apiKey ? 'https://sandbox.asaas.com/api/v3' : this.defaultApiUrl);
 
     const cleanPhone = phone.replace(/\D/g, '');
     try {
       // 1. Search existing customer by phone
-      const searchRes = await fetch(`${this.apiUrl}/customers?mobilePhone=${cleanPhone}`, {
-        headers: { 'access_token': this.apiKey },
+      const searchRes = await fetch(`${baseUrl}/customers?mobilePhone=${cleanPhone}`, {
+        headers: { 'access_token': activeKey },
       });
 
       if (searchRes.ok) {
@@ -69,11 +126,11 @@ class AsaasService {
       }
 
       // 2. Create customer if not found
-      const createRes = await fetch(`${this.apiUrl}/customers`, {
+      const createRes = await fetch(`${baseUrl}/customers`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'access_token': this.apiKey,
+          'access_token': activeKey,
         },
         body: JSON.stringify({
           name: name || `Cliente ${cleanPhone.slice(-4)}`,
@@ -106,22 +163,32 @@ class AsaasService {
       gatewayCost: 0.99,
     });
 
+    const activeKey = params.apiKey || this.defaultApiKey;
+    const baseUrl = params.environment === 'PRODUCTION'
+      ? 'https://api.asaas.com/v3'
+      : (params.apiKey ? 'https://sandbox.asaas.com/api/v3' : this.defaultApiUrl);
+
     const cleanPhone = params.clientPhone.replace(/\D/g, '');
     const fallbackPixCode = makePix(split.finalPrice);
 
     // If Asaas is configured, call official API
-    if (this.isConfigured()) {
+    if (this.isConfigured(activeKey)) {
       try {
-        const customerId = await this.getOrCreateAsaasCustomer(params.clientName, cleanPhone);
+        const customerId = await this.getOrCreateAsaasCustomer(
+          params.clientName,
+          cleanPhone,
+          activeKey,
+          params.environment
+        );
 
         // Due date tomorrow
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
         const dueDate = tomorrow.toISOString().split('T')[0];
 
-        // Prepare split definitions
+        // Prepare split definitions if autoSplitEnabled is true (or undefined/default)
         const splitRules: any[] = [];
-        if (params.barberWalletId) {
+        if (params.autoSplitEnabled !== false && params.barberWalletId) {
           splitRules.push({
             walletId: params.barberWalletId,
             fixedValue: split.barberShare,
@@ -142,11 +209,11 @@ class AsaasService {
           payload.split = splitRules;
         }
 
-        const paymentRes = await fetch(`${this.apiUrl}/payments`, {
+        const paymentRes = await fetch(`${baseUrl}/payments`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'access_token': this.apiKey,
+            'access_token': activeKey,
           },
           body: JSON.stringify(payload),
         });
@@ -156,8 +223,8 @@ class AsaasService {
           const paymentId = paymentData.id;
 
           // Fetch QR Code and Copia e Cola
-          const qrRes = await fetch(`${this.apiUrl}/payments/${paymentId}/pixQrCode`, {
-            headers: { 'access_token': this.apiKey },
+          const qrRes = await fetch(`${baseUrl}/payments/${paymentId}/pixQrCode`, {
+            headers: { 'access_token': activeKey },
           });
 
           if (qrRes.ok) {

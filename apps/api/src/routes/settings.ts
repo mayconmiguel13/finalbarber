@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { asaasService } from '../services/asaasService.js';
 
 // Default opening hours schedule (Monday to Sunday)
 export const defaultOpeningHours = {
@@ -21,6 +22,15 @@ export const defaultPaymentFees = {
   deductFeeFromSplit: true,
 };
 
+// Default booking policies and house rules
+export const defaultBookingPolicies = {
+  minAdvanceMinutes: 30,
+  maxAdvanceDays: 30,
+  chairCleanupMinutes: 5,
+  cancelNoticeHours: 2,
+  welcomeMessage: 'Bem-vindo ao nosso espaço! Chegue com 5 minutos de antecedência. Café e Wi-Fi de cortesia disponíveis.',
+};
+
 export async function settingsRoutes(app: FastifyInstance) {
   const settingsUpdateSchema = z.object({
     name: z.string().min(2).optional(),
@@ -28,6 +38,7 @@ export async function settingsRoutes(app: FastifyInstance) {
     document: z.string().optional().nullable(),
     phone: z.string().optional().nullable(),
     ownerName: z.string().optional().nullable(),
+    logoUrl: z.string().optional().nullable(),
 
     // Endereço
     postalCode: z.string().optional().nullable(),
@@ -43,10 +54,17 @@ export async function settingsRoutes(app: FastifyInstance) {
     themeMode: z.enum(['dark', 'light']).default('dark'),
 
     // Regras de Pagamento & Anti No-Show
+    onlinePaymentEnabled: z.boolean().default(true),
+    autoSplitEnabled: z.boolean().default(true),
     onlineDiscountActive: z.boolean().default(true),
     onlineDiscountType: z.enum(['PERCENTAGE', 'FIXED']).default('PERCENTAGE'),
     onlineDiscountValue: z.number().default(10),
     toleranceMinutes: z.number().min(0).max(60).default(15),
+
+    // Gateway Asaas & Subcontas
+    asaasApiKey: z.string().optional().nullable(),
+    asaasEnvironment: z.enum(['SANDBOX', 'PRODUCTION']).default('SANDBOX'),
+    asaasWalletId: z.string().optional().nullable(),
 
     // Chave Pix Direta
     pixKey: z.string().optional().nullable(),
@@ -54,6 +72,15 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     // Horários de Funcionamento
     openingHours: z.record(z.any()).optional().nullable(),
+
+    // Políticas de Agendamento
+    bookingPolicies: z.object({
+      minAdvanceMinutes: z.number().min(0).max(1440).default(30),
+      maxAdvanceDays: z.number().min(1).max(365).default(30),
+      chairCleanupMinutes: z.number().min(0).max(60).default(5),
+      cancelNoticeHours: z.number().min(0).max(72).default(2),
+      welcomeMessage: z.string().max(500).optional().nullable(),
+    }).optional().nullable(),
 
     // Taxas de Cartão & Operadora (Adquirência)
     paymentFees: z.object({
@@ -84,6 +111,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         document: org.document || '',
         phone: org.phone || '',
         ownerName: org.ownerName || '',
+        logoUrl: org.logoUrl || '',
         postalCode: org.postalCode || '',
         address: org.address || '',
         addressNumber: org.addressNumber || '',
@@ -93,13 +121,19 @@ export async function settingsRoutes(app: FastifyInstance) {
         state: org.state || '',
         themeColor: org.themeColor || 'gold',
         themeMode: org.themeMode || 'dark',
+        onlinePaymentEnabled: org.onlinePaymentEnabled ?? true,
+        autoSplitEnabled: org.autoSplitEnabled ?? true,
         onlineDiscountActive: org.onlineDiscountActive ?? true,
         onlineDiscountType: org.onlineDiscountType || 'PERCENTAGE',
         onlineDiscountValue: Number(org.onlineDiscountValue) || 10,
         toleranceMinutes: org.toleranceMinutes ?? 15,
+        asaasApiKey: org.asaasApiKey || '',
+        asaasEnvironment: org.asaasEnvironment || 'SANDBOX',
+        asaasWalletId: org.asaasWalletId || '',
         pixKey: org.pixKey || '',
         pixKeyType: org.pixKeyType || 'PHONE',
         openingHours: org.openingHours || defaultOpeningHours,
+        bookingPolicies: org.bookingPolicies || defaultBookingPolicies,
         paymentFees: org.paymentFees || defaultPaymentFees,
         planStatus: org.planStatus,
         planTier: org.planTier,
@@ -131,6 +165,7 @@ export async function settingsRoutes(app: FastifyInstance) {
           document: data.document !== undefined ? data.document : undefined,
           phone: data.phone || undefined,
           ownerName: data.ownerName !== undefined ? data.ownerName : undefined,
+          logoUrl: data.logoUrl !== undefined ? data.logoUrl : undefined,
           postalCode: data.postalCode !== undefined ? data.postalCode : undefined,
           address: data.address !== undefined ? data.address : undefined,
           addressNumber: data.addressNumber !== undefined ? data.addressNumber : undefined,
@@ -140,13 +175,19 @@ export async function settingsRoutes(app: FastifyInstance) {
           state: data.state !== undefined ? data.state : undefined,
           themeColor: data.themeColor,
           themeMode: data.themeMode,
+          onlinePaymentEnabled: data.onlinePaymentEnabled,
+          autoSplitEnabled: data.autoSplitEnabled,
           onlineDiscountActive: data.onlineDiscountActive,
           onlineDiscountType: data.onlineDiscountType,
           onlineDiscountValue: data.onlineDiscountValue,
           toleranceMinutes: data.toleranceMinutes,
+          asaasApiKey: data.asaasApiKey !== undefined ? data.asaasApiKey : undefined,
+          asaasEnvironment: data.asaasEnvironment !== undefined ? data.asaasEnvironment : undefined,
+          asaasWalletId: data.asaasWalletId !== undefined ? data.asaasWalletId : undefined,
           pixKey: data.pixKey !== undefined ? data.pixKey : undefined,
           pixKeyType: data.pixKeyType !== undefined ? data.pixKeyType : undefined,
           openingHours: data.openingHours !== undefined ? (data.openingHours as any) : undefined,
+          bookingPolicies: data.bookingPolicies !== undefined ? (data.bookingPolicies as any) : undefined,
           paymentFees: data.paymentFees !== undefined ? (data.paymentFees as any) : undefined,
         },
       });
@@ -161,6 +202,7 @@ export async function settingsRoutes(app: FastifyInstance) {
           document: updated.document,
           phone: updated.phone,
           ownerName: updated.ownerName,
+          logoUrl: updated.logoUrl,
           postalCode: updated.postalCode,
           address: updated.address,
           addressNumber: updated.addressNumber,
@@ -170,13 +212,19 @@ export async function settingsRoutes(app: FastifyInstance) {
           state: updated.state,
           themeColor: updated.themeColor,
           themeMode: updated.themeMode,
+          onlinePaymentEnabled: updated.onlinePaymentEnabled,
+          autoSplitEnabled: updated.autoSplitEnabled,
           onlineDiscountActive: updated.onlineDiscountActive,
           onlineDiscountType: updated.onlineDiscountType,
           onlineDiscountValue: Number(updated.onlineDiscountValue),
           toleranceMinutes: updated.toleranceMinutes,
+          asaasApiKey: updated.asaasApiKey,
+          asaasEnvironment: updated.asaasEnvironment,
+          asaasWalletId: updated.asaasWalletId,
           pixKey: updated.pixKey,
           pixKeyType: updated.pixKeyType,
           openingHours: updated.openingHours || defaultOpeningHours,
+          bookingPolicies: updated.bookingPolicies || defaultBookingPolicies,
           paymentFees: updated.paymentFees || defaultPaymentFees,
         },
       };
@@ -184,5 +232,41 @@ export async function settingsRoutes(app: FastifyInstance) {
       console.error('[Settings PATCH Error]', err);
       return reply.status(500).send({ error: 'Erro ao salvar configurações no banco de dados.' });
     }
+  });
+
+  // POST /api/settings/:orgId/test-asaas
+  app.post('/settings/:orgId/test-asaas', async (request: FastifyRequest<{
+    Params: { orgId: string };
+    Body: { apiKey?: string; environment?: 'SANDBOX' | 'PRODUCTION' };
+  }>, reply: FastifyReply) => {
+    const { orgId } = request.params;
+    const body = request.body || {};
+
+    let apiKey = body.apiKey;
+    let environment = body.environment || 'SANDBOX';
+
+    // If not provided in body, load from organization
+    if (!apiKey) {
+      const org = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { asaasApiKey: true, asaasEnvironment: true },
+      });
+      apiKey = org?.asaasApiKey || undefined;
+      environment = (org?.asaasEnvironment as any) || environment;
+    }
+
+    if (!apiKey || !apiKey.trim()) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Chave de API não informada nem configurada na barbearia.',
+      });
+    }
+
+    const result = await asaasService.testConnection(apiKey, environment);
+    if (!result.success) {
+      return reply.status(400).send(result);
+    }
+
+    return result;
   });
 }

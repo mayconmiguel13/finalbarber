@@ -774,7 +774,12 @@ export async function appointmentsRoutes(app: FastifyInstance) {
       const discount = parsed.data.discount || 0;
       const netTotal = Math.max(0.01, Number((servicePrice + productsPrice - discount).toFixed(2)));
 
-      // Gerar Pix via Asaas (ou mock de alta fidelidade) com cálculo do Split da Lei do Salão-Parceiro
+      const org = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { autoSplitEnabled: true, asaasApiKey: true, asaasEnvironment: true, asaasWalletId: true },
+      });
+
+      // Gerar Pix via Asaas com split condicional e credenciais dinâmicas
       const pixResult = await asaasService.createPixWithSplit({
         appointmentId: appointment.id,
         clientName: appointment.customer?.name || 'Cliente Balcão',
@@ -782,6 +787,11 @@ export async function appointmentsRoutes(app: FastifyInstance) {
         servicePrice: netTotal,
         barberName: appointment.barber?.nickname || appointment.barber?.user?.name || 'Barbeiro',
         barberCommissionRate: Number(appointment.barber?.commissionRate) || 50,
+        autoSplitEnabled: org?.autoSplitEnabled ?? true,
+        apiKey: org?.asaasApiKey || undefined,
+        environment: (org?.asaasEnvironment as any) || 'SANDBOX',
+        salonWalletId: org?.asaasWalletId || undefined,
+        barberWalletId: appointment.barber?.asaasWalletId || undefined,
       });
 
       // Salva / atualiza a transação como pendente

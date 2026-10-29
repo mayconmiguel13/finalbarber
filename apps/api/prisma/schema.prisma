@@ -79,8 +79,15 @@ model Organization {
   // Horários de Funcionamento (Segunda a Domingo)
   openingHours        Json?
 
-  // Configurações de Subadquirente / Asaas
+  // Configurações de Subadquirente / Asaas & Pagamento Online
+  onlinePaymentEnabled Boolean      @default(true)
+  autoSplitEnabled     Boolean      @default(true)
+  asaasApiKey          String?      @db.VarChar(255)
+  asaasEnvironment     String       @default("SANDBOX") @db.VarChar(20) // SANDBOX, PRODUCTION
   asaasWalletId       String?      @db.VarChar(100) // Subconta Asaas da Barbearia
+
+  // Políticas de Agendamento e Regras da Casa
+  bookingPolicies      Json?
 
   // SaaS & Plan / Subscription Management (30 Dias Grátis)
   planStatus          String       @default("TRIAL") @db.VarChar(20) // TRIAL, ACTIVE, EXPIRED, PAST_DUE

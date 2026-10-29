@@ -113,10 +113,21 @@ const loadingPublicData = ref(false);
 async function loadPublicData() {
   loadingPublicData.value = true;
   try {
-    const [srvRes, brbRes] = await Promise.all([
+    const [srvRes, brbRes, setRes] = await Promise.all([
       fetch('/api/services/public').catch(() => null),
       fetch('/api/barbers/public').catch(() => null),
+      fetch('/api/settings/org_y6c0a0ji').catch(() => null),
     ]);
+
+    if (setRes && setRes.ok) {
+      const setData = await setRes.json();
+      if (typeof setData.onlinePaymentEnabled === 'boolean') {
+        onlinePaymentEnabled.value = setData.onlinePaymentEnabled;
+        if (!setData.onlinePaymentEnabled) {
+          payOnlineWithDiscount.value = false;
+        }
+      }
+    }
 
     if (srvRes && srvRes.ok) {
       const srvData = await srvRes.json();
@@ -168,6 +179,7 @@ const selectedDate = ref(days.value[0]?.date || '2026-10-28');
 const selectedTime = ref('15:00');
 const clientNameInput = ref('');
 const clientPhoneInput = ref('');
+const onlinePaymentEnabled = ref(true);
 const payOnlineWithDiscount = ref(true);
 
 const submitting = ref(false);
@@ -961,8 +973,9 @@ onMounted(() => {
             <div class="space-y-2.5 pt-1">
               <span class="text-xs font-bold text-slate-800 dark:text-slate-200">Forma de Pagamento:</span>
 
-              <!-- Opção 1: Pix com 10% OFF -->
+              <!-- Opção 1: Pix com 10% OFF (Apenas se onlinePaymentEnabled ativo) -->
               <div 
+                v-if="onlinePaymentEnabled"
                 @click="payOnlineWithDiscount = true"
                 class="p-4 rounded-2xl border-2 transition cursor-pointer relative overflow-hidden"
                 :class="payOnlineWithDiscount 
@@ -990,6 +1003,10 @@ onMounted(() => {
                   <span class="flex items-center gap-1"><ShieldCheck class="w-3.5 h-3.5" /> Garantia total da cadeira</span>
                   <span class="font-bold">Economize R$ {{ (selectedService.price * 0.1).toFixed(2) }}</span>
                 </div>
+              </div>
+
+              <div v-else class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                Esta barbearia recebe os pagamentos presencialmente no balcão após o atendimento.
               </div>
 
               <!-- Opção 2: Balcão -->

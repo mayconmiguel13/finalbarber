@@ -522,6 +522,14 @@ export interface DaySchedule {
   closed: boolean;
 }
 
+export interface BookingPolicies {
+  minAdvanceMinutes: number;
+  maxAdvanceDays: number;
+  chairCleanupMinutes: number;
+  cancelNoticeHours: number;
+  welcomeMessage?: string;
+}
+
 export interface OrgSettings {
   id?: string;
   name?: string;
@@ -529,6 +537,7 @@ export interface OrgSettings {
   document?: string;
   phone?: string;
   ownerName?: string;
+  logoUrl?: string;
   postalCode?: string;
   address?: string;
   addressNumber?: string;
@@ -538,15 +547,22 @@ export interface OrgSettings {
   state?: string;
   themeColor: 'gold' | 'blue' | 'emerald' | 'copper';
   themeMode: 'dark' | 'light';
+  onlinePaymentEnabled?: boolean;
+  autoSplitEnabled?: boolean;
   onlineDiscountActive: boolean;
   onlineDiscountType: 'PERCENTAGE' | 'FIXED';
   onlineDiscountValue: number;
   toleranceMinutes?: number;
+  asaasApiKey?: string;
+  asaasEnvironment?: 'SANDBOX' | 'PRODUCTION';
+  asaasWalletId?: string;
   pixKey?: string;
   pixKeyType?: 'CPF' | 'CNPJ' | 'EMAIL' | 'PHONE' | 'RANDOM';
   openingHours?: Record<string, DaySchedule>;
+  bookingPolicies?: BookingPolicies;
   paymentFees?: PaymentFeeSettings;
   planStatus?: string;
+  planTier?: string;
   trialEndsAt?: string;
 }
 
@@ -601,6 +617,17 @@ export const api = {
     });
     const resData = await res.json();
     if (!res.ok) throw new Error(resData.error || 'Falha ao salvar taxas da maquininha');
+    return resData;
+  },
+
+  async testAsaas(data: { apiKey?: string; environment?: 'SANDBOX' | 'PRODUCTION' }, orgId = 'default-org'): Promise<{ success: boolean; balance?: number; error?: string }> {
+    const res = await fetch(`/api/settings/${orgId}/test-asaas`, {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao testar conexão com o Asaas');
     return resData;
   },
 

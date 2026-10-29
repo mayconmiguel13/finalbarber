@@ -17,6 +17,7 @@ export interface Organization {
   slug: string;
   phone?: string;
   ownerName?: string;
+  logoUrl?: string;
   planStatus: 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'PAST_DUE';
   planTier: 'STARTER' | 'PRO' | 'ENTERPRISE';
   trialEndsAt?: string;
