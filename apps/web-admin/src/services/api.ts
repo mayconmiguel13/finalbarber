@@ -433,6 +433,7 @@ export interface PaymentFeeSettings {
 export interface FinancialSummary {
   totalIncome: number;
   totalExpense: number;
+  operationalExpenses?: number;
   cardFeeTotal?: number;
   netProfit: number;
   netSalonIncome?: number;

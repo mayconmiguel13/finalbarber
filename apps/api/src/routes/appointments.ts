@@ -456,9 +456,17 @@ export async function appointmentsRoutes(app: FastifyInstance) {
         const commAmount = (finalPrice * commRate) / 100;
         const finId = 'fin_apt_' + aptId;
         await prisma.$queryRawUnsafe(`
-          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
-          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, NOW(), NOW(), NOW())
-        `, finId, orgId, `Atendimento: ${serviceNames} (${customer.name})`, finalPrice, body.paymentMethod, barber.id, commAmount);
+          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, NOW(), ?, NOW(), NOW())
+        `, finId, orgId, `Atendimento: ${serviceNames} (${customer.name})`, finalPrice, body.paymentMethod, barber.id, commAmount, startsAtDate);
+
+        if (commAmount > 0) {
+          const commFinId = 'fin_comm_' + aptId;
+          await prisma.$queryRawUnsafe(`
+            INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+            VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, ?, 'PENDING', ?, 0, NULL, ?, NOW(), NOW())
+          `, commFinId, orgId, `Comissão: ${serviceNames} - ${barber.user.name}`, commAmount, body.paymentMethod, barber.id, startsAtDate);
+        }
       }
 
       return reply.status(201).send({
@@ -534,9 +542,21 @@ export async function appointmentsRoutes(app: FastifyInstance) {
         const existing: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM financial_entries WHERE id = ?`, finId);
         if (existing.length === 0) {
           await prisma.$queryRawUnsafe(`
-            INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
-            VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, NOW(), NOW(), NOW())
-          `, finId, orgId, `Atendimento: ${appointment.service.name} (${appointment.customer.name})`, finalPrice, paymentMethod, appointment.barberId, commAmount);
+            INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+            VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, NOW(), ?, NOW(), NOW())
+          `, finId, orgId, `Atendimento: ${appointment.service.name} (${appointment.customer.name})`, finalPrice, paymentMethod, appointment.barberId, commAmount, appointment.startsAt);
+        }
+
+        if (commAmount > 0) {
+          const commFinId = 'fin_comm_' + appointment.id;
+          const splitFinId = 'fin_split_' + appointment.id;
+          const existingExp: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM financial_entries WHERE id IN (?, ?)`, commFinId, splitFinId);
+          if (existingExp.length === 0) {
+            await prisma.$queryRawUnsafe(`
+              INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+              VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, ?, 'PENDING', ?, 0, NULL, ?, NOW(), NOW())
+            `, commFinId, orgId, `Comissão: ${appointment.service.name} - ${appointment.barber.user.name}`, commAmount, paymentMethod, appointment.barberId, appointment.startsAt);
+          }
         }
 
         // Se houver produtos/bebidas consumidos no atendimento, processar baixa no estoque e comissão
@@ -919,9 +939,21 @@ export async function appointmentsRoutes(app: FastifyInstance) {
       const existing: any[] = await prisma.$queryRawUnsafe('SELECT id FROM financial_entries WHERE id = ?', finId);
       if (existing.length === 0) {
         await prisma.$queryRawUnsafe(`
-          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
-          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, 'PIX', 'PAID', ?, ?, NOW(), NOW(), NOW())
-        `, finId, orgId, `Atendimento: ${appointment.service.name} (${appointment.customer.name})`, finalPrice, appointment.barberId, commAmount);
+          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, 'PIX', 'PAID', ?, ?, NOW(), ?, NOW(), NOW())
+        `, finId, orgId, `Atendimento: ${appointment.service.name} (${appointment.customer.name})`, finalPrice, appointment.barberId, commAmount, appointment.startsAt);
+      }
+
+      if (commAmount > 0) {
+        const commFinId = 'fin_comm_' + appointment.id;
+        const splitFinId = 'fin_split_' + appointment.id;
+        const existingExp: any[] = await prisma.$queryRawUnsafe(`SELECT id FROM financial_entries WHERE id IN (?, ?)`, commFinId, splitFinId);
+        if (existingExp.length === 0) {
+          await prisma.$queryRawUnsafe(`
+            INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+            VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, 'PIX', 'PENDING', ?, 0, NULL, ?, NOW(), NOW())
+          `, commFinId, orgId, `Comissão: ${appointment.service.name} - ${appointment.barber.user.name}`, commAmount, appointment.barberId, appointment.startsAt);
+        }
       }
 
       if (parsed.data.consumedProducts && parsed.data.consumedProducts.length > 0) {

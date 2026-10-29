@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 
 
-async function syncCompletedAppointmentsToFinancial(orgId: string) {
+export async function syncCompletedAppointmentsToFinancial(orgId: string) {
   try {
     const org = await prisma.organization.findUnique({
       where: { id: orgId },
@@ -22,38 +22,65 @@ async function syncCompletedAppointmentsToFinancial(orgId: string) {
     });
 
     for (const apt of completedApts) {
+      const finalPrice = Number(apt.finalPrice) || 0;
+      const commRate = Number(apt.barber?.commissionRate) || 50;
+
+      // Obter forma de pagamento real
       const finId = 'fin_apt_' + apt.id;
-      const existing: any[] = await prisma.$queryRawUnsafe('SELECT id FROM financial_entries WHERE id = ?', finId);
-      if (existing.length === 0) {
-        const finalPrice = Number(apt.finalPrice) || 0;
-        const commRate = Number(apt.barber?.commissionRate) || 50;
-        const payMethod = (apt.transaction?.paymentMethod || 'PIX').toUpperCase();
+      const existingIncome: any[] = await prisma.$queryRawUnsafe('SELECT id, paymentMethod FROM financial_entries WHERE id = ?', finId);
+      let payMethod = (existingIncome[0]?.paymentMethod || apt.transaction?.paymentMethod || 'CARTAO_DEBITO').toUpperCase();
 
-        let feePercent = 0;
-        if (payMethod === 'CREDIT_CARD') feePercent = Number(fees.creditFeePercent) || 3.2;
-        else if (payMethod === 'DEBIT_CARD') feePercent = Number(fees.debitFeePercent) || 1.4;
-        else if (payMethod === 'PIX') feePercent = Number(fees.pixFeePercent) || 0;
+      let feePercent = 0;
+      if (payMethod === 'CREDIT_CARD' || payMethod === 'CARTAO_CREDITO' || payMethod === 'CREDITO') {
+        feePercent = Number(fees.creditFeePercent) || 3.2;
+      } else if (payMethod === 'DEBIT_CARD' || payMethod === 'CARTAO_DEBITO' || payMethod === 'DEBITO') {
+        feePercent = Number(fees.debitFeePercent) || 1.4;
+      } else if (payMethod === 'PIX') {
+        feePercent = Number(fees.pixFeePercent) || 0;
+      }
 
-        const feeAmount = (finalPrice * feePercent) / 100;
-        const netBase = fees.deductFeeFromSplit ? Math.max(0, finalPrice - feeAmount) : finalPrice;
-        const commAmount = (netBase * commRate) / 100;
+      const feeAmount = (finalPrice * feePercent) / 100;
+      const netBase = fees.deductFeeFromSplit ? Math.max(0, finalPrice - feeAmount) : finalPrice;
+      const commAmount = Number(((netBase * commRate) / 100).toFixed(2));
+
+      // 1. Garantir RECEITA do Atendimento no Livro Caixa
+      if (existingIncome.length === 0) {
         const desc = `Atendimento: ${apt.service?.name || 'Serviço'} (${apt.customer?.name || 'Cliente'})`;
-
         await prisma.$queryRawUnsafe(`
-          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
-          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, ?, ?, NOW())
-        `, finId, orgId, desc, finalPrice, payMethod, apt.barberId, commAmount, apt.endsAt || apt.startsAt, apt.startsAt);
+          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, ?, ?, ?, NOW())
+        `, finId, orgId, desc, finalPrice, payMethod, apt.barberId, commAmount, apt.endsAt || apt.startsAt, apt.startsAt, apt.startsAt);
+      }
 
-        // Se o pagamento foi processado via split automático no gateway, já registra a despesa de repasse quitada
-        if (apt.transaction && apt.transaction.status === 'CONFIRMED' && commAmount > 0 && apt.barberId) {
-          const splitFinId = 'fin_split_' + apt.id;
-          const existingSplit: any[] = await prisma.$queryRawUnsafe('SELECT id FROM financial_entries WHERE id = ?', splitFinId);
-          if (existingSplit.length === 0) {
+      // 2. Garantir DESPESA DE REPASSE da Comissão ao Barbeiro
+      if (commAmount > 0 && apt.barberId) {
+        const splitFinId = 'fin_split_' + apt.id;
+        const commFinId = 'fin_comm_' + apt.id;
+        const existingExpense: any[] = await prisma.$queryRawUnsafe(
+          'SELECT id, status FROM financial_entries WHERE id IN (?, ?)',
+          splitFinId, commFinId
+        );
+
+        if (existingExpense.length === 0) {
+          const isAutoSplit = Boolean(
+            apt.transaction &&
+            apt.transaction.status === 'CONFIRMED' &&
+            apt.transaction.paymentMethod === 'PIX'
+          );
+
+          if (isAutoSplit) {
             const splitDesc = `Repasse Automático (Split) - ${apt.barber?.user?.name || 'Profissional'}`;
             await prisma.$queryRawUnsafe(`
-              INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
-              VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, ?, 'PAID', ?, 0, ?, ?, NOW())
-            `, splitFinId, orgId, splitDesc, commAmount, payMethod, apt.barberId, apt.endsAt || apt.startsAt, apt.startsAt);
+              INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+              VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, ?, 'PAID', ?, 0, ?, ?, ?, NOW())
+            `, splitFinId, orgId, splitDesc, commAmount, payMethod, apt.barberId, apt.endsAt || apt.startsAt, apt.startsAt, apt.startsAt);
+          } else {
+            // Pagamento manual/balcão -> Gera CONTA A PAGAR PENDENTE (status = PENDING)
+            const commDesc = `Comissão: ${apt.service?.name || 'Serviço'} - ${apt.barber?.user?.name || 'Profissional'}`;
+            await prisma.$queryRawUnsafe(`
+              INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+              VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, ?, 'PENDING', ?, 0, NULL, ?, ?, NOW())
+            `, commFinId, orgId, commDesc, commAmount, payMethod, apt.barberId, apt.startsAt, apt.startsAt);
           }
         }
       }
@@ -209,6 +236,17 @@ export async function financialRoutes(app: FastifyInstance) {
         deductFeeFromSplit: true,
       };
 
+      // Separação de despesas operacionais vs repasses pagos de comissão
+      let operationalExpenses = 0;
+      for (const e of entries) {
+        if (e.type === 'EXPENSE' && e.status === 'PAID') {
+          const isBarber = e.category === 'Repasse Barbeiro' || e.category === 'Repasse Salão-Parceiro' || e.category === 'Comissão Barbeiro';
+          if (!isBarber) {
+            operationalExpenses += (Number(e.amount) || 0);
+          }
+        }
+      }
+
       // Cálculo de taxas de cartão consumidas
       let cardFeeTotal = 0;
       for (const e of entries) {
@@ -216,8 +254,8 @@ export async function financialRoutes(app: FastifyInstance) {
           const val = Number(e.amount) || 0;
           const pm = (e.paymentMethod || 'PIX').toUpperCase();
           let rate = 0;
-          if (pm === 'CREDIT_CARD') rate = Number(fees.creditFeePercent) || 3.2;
-          else if (pm === 'DEBIT_CARD') rate = Number(fees.debitFeePercent) || 1.4;
+          if (pm === 'CREDIT_CARD' || pm === 'CARTAO_CREDITO' || pm === 'CREDITO') rate = Number(fees.creditFeePercent) || 3.2;
+          else if (pm === 'DEBIT_CARD' || pm === 'CARTAO_DEBITO' || pm === 'DEBITO') rate = Number(fees.debitFeePercent) || 1.4;
           else if (pm === 'PIX') rate = Number(fees.pixFeePercent) || 0;
           cardFeeTotal += (val * rate) / 100;
         }
@@ -225,8 +263,14 @@ export async function financialRoutes(app: FastifyInstance) {
 
       cardFeeTotal = Number(cardFeeTotal.toFixed(2));
       const periodPendingCommissions = Math.max(0, totalCommissionsGenerated - totalCommissionsPaid);
-      const netProfit = Number((totalIncome - totalExpense - cardFeeTotal).toFixed(2));
+
+      // 1. Receita Líquida da Barbearia = Faturamento Bruto - Comissões da Equipe - Taxas da Maquininha
       const netSalonIncome = Number(Math.max(0, totalIncome - totalCommissionsGenerated - cardFeeTotal).toFixed(2));
+
+      // 2. Resultado Líquido do Exercício (Lucro Real da Barbearia) = Receita Líquida - Despesas Fixas/Operacionais
+      const netProfit = Number((netSalonIncome - operationalExpenses).toFixed(2));
+
+      // 3. Margem Líquida Real (%) = Lucro Real / Faturamento Bruto
       const profitMargin = totalIncome > 0 ? Number(((netProfit / totalIncome) * 100).toFixed(1)) : 0;
 
       // Despesas pendentes / Contas a pagar futuras
@@ -265,6 +309,7 @@ export async function financialRoutes(app: FastifyInstance) {
       return {
         totalIncome,
         totalExpense,
+        operationalExpenses,
         cardFeeTotal,
         netProfit,
         netSalonIncome,
@@ -673,13 +718,54 @@ export async function financialRoutes(app: FastifyInstance) {
         return reply.status(404).send({ error: 'Barbeiro não encontrado nesta organização.' });
       }
 
-      const id = 'fin_pay_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
-      const desc = `Repasse de Comissões Pix (Lei 13.352) - ${barber.user.name}`;
+      // Buscar despesas de comissão pendentes deste barbeiro para dar baixa sincronizada
+      const pendingEntries: any[] = await prisma.$queryRawUnsafe(`
+        SELECT id, amount FROM financial_entries
+        WHERE orgId = ? AND barberId = ? AND type = 'EXPENSE' AND status = 'PENDING'
+        ORDER BY createdAt ASC
+      `, orgId, barberId);
 
-      await prisma.$queryRawUnsafe(`
-        INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
-        VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, 'PIX', 'PAID', ?, 0, NOW(), NOW(), NOW())
-      `, id, orgId, desc, amount, barberId);
+      let remainingToPay = amount;
+
+      for (const pe of pendingEntries) {
+        if (remainingToPay <= 0) break;
+        const peAmount = Number(pe.amount) || 0;
+        if (remainingToPay >= peAmount - 0.01) {
+          // Quita integralmente esta comissão pendente
+          await prisma.$queryRawUnsafe(`
+            UPDATE financial_entries
+            SET status = 'PAID', paidAt = NOW(), paymentMethod = ?, updatedAt = NOW()
+            WHERE id = ? AND orgId = ?
+          `, body.paymentMethod || 'PIX', pe.id, orgId);
+          remainingToPay -= peAmount;
+        } else {
+          // Quitação parcial
+          const newPending = Number((peAmount - remainingToPay).toFixed(2));
+          await prisma.$queryRawUnsafe(`
+            UPDATE financial_entries
+            SET amount = ?, updatedAt = NOW()
+            WHERE id = ? AND orgId = ?
+          `, newPending, pe.id, orgId);
+
+          const partialId = 'fin_pay_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 6);
+          const partialDesc = `Repasse Parcial Pix - ${barber.user.name}`;
+          await prisma.$queryRawUnsafe(`
+            INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+            VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, ?, 'PAID', ?, 0, NOW(), NOW(), NOW(), NOW())
+          `, partialId, orgId, partialDesc, remainingToPay, body.paymentMethod || 'PIX', barberId);
+          remainingToPay = 0;
+        }
+      }
+
+      // Se restou valor ou se não havia lançamentos individuais pendentes
+      if (remainingToPay > 0.01) {
+        const id = 'fin_pay_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 8);
+        const desc = `Repasse de Comissões Pix (Lei 13.352) - ${barber.user.name}`;
+        await prisma.$queryRawUnsafe(`
+          INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, dueDate, createdAt, updatedAt)
+          VALUES (?, ?, 'EXPENSE', 'Repasse Barbeiro', ?, ?, ?, 'PAID', ?, 0, NOW(), NOW(), NOW(), NOW())
+        `, id, orgId, desc, remainingToPay, body.paymentMethod || 'PIX', barberId);
+      }
 
       return {
         success: true,

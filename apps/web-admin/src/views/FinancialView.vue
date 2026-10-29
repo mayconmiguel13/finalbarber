@@ -1399,10 +1399,10 @@ onMounted(() => {
           </div>
           <div class="mt-2">
             <div class="text-xl sm:text-2xl font-black text-rose-500 truncate">
-              {{ formatMoney(summary.totalExpense) }}
+              {{ formatMoney(summary.operationalExpenses ?? summary.totalExpense) }}
             </div>
             <div class="text-[11px] text-slate-400 mt-1 truncate">
-              {{ summary.totalIncome > 0 ? ((summary.totalExpense / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
+              {{ summary.totalIncome > 0 ? (((summary.operationalExpenses ?? summary.totalExpense) / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
             </div>
           </div>
         </div>
@@ -1546,10 +1546,10 @@ onMounted(() => {
               </div>
               <div class="text-right">
                 <span class="font-black text-rose-500 text-base block">
-                  - {{ formatMoney(summary.totalExpense) }}
+                  - {{ formatMoney(summary.operationalExpenses ?? summary.totalExpense) }}
                 </span>
                 <span class="text-[10px] text-slate-400">
-                  {{ summary.totalIncome > 0 ? ((summary.totalExpense / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
+                  {{ summary.totalIncome > 0 ? (((summary.operationalExpenses ?? summary.totalExpense) / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
                 </span>
               </div>
             </div>
