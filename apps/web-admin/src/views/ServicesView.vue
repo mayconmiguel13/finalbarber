@@ -837,7 +837,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="p-3.5 sm:p-6 lg:p-10 space-y-5 sm:space-y-8 max-w-7xl mx-auto font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors no-scrollbar">
+  <div class="p-3.5 sm:p-6 lg:p-8 space-y-6 max-w-[1750px] w-full mx-auto font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors no-scrollbar">
     
     <!-- ============================================== -->
     <!-- TOP HEADER: TITLE & GLOBAL ACTIONS             -->
@@ -1051,7 +1051,7 @@ onUnmounted(() => {
       </div>
 
       <!-- VIEW 1: CARDS DE SERVIÇOS -->
-      <div v-if="serviceViewMode === 'CARDS'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div v-if="serviceViewMode === 'CARDS'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-6">
         <div 
           v-for="service in filteredServices" 
           :key="service.id"
@@ -1466,7 +1466,7 @@ onUnmounted(() => {
       </div>
 
       <!-- VIEW 1: CARDS ESTILO FEED / PORTFÓLIO DA GALERIA -->
-      <div v-if="galleryViewMode === 'CARDS'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div v-if="galleryViewMode === 'CARDS'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-6">
         <div 
           v-for="item in filteredGalleryItems" 
           :key="item.id"

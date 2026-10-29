@@ -744,7 +744,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-3.5 sm:p-6 lg:p-10 space-y-5 sm:space-y-8 max-w-7xl mx-auto font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors no-scrollbar">
+  <div class="p-3.5 sm:p-6 lg:p-8 space-y-6 max-w-[1750px] w-full mx-auto font-sans antialiased text-slate-900 dark:text-slate-100 transition-colors no-scrollbar">
 
     <!-- ============================================== -->
     <!-- TOP HEADER: TITLE & ACTIONS                    -->
@@ -1098,7 +1098,7 @@ onMounted(() => {
     <!-- ============================================================== -->
     <div 
       v-else-if="viewMode === 'CARDS'" 
-      class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
+      class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-5"
     >
       <div 
         v-for="customer in filteredCustomers" 

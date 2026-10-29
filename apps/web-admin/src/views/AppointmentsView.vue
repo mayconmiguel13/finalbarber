@@ -1450,7 +1450,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex-1 flex flex-col p-3.5 sm:p-6 lg:p-8 space-y-6 max-w-[1700px] w-full mx-auto">
+  <div class="flex-1 flex flex-col p-3.5 sm:p-6 lg:p-8 space-y-6 max-w-[1750px] w-full mx-auto">
     
     <!-- ================= HEADER: TÍTULO, NAVEGADOR DE DATAS E AÇÕES ================= -->
     <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 pb-4 border-b border-slate-200/80 dark:border-white/10">
