@@ -90,6 +90,7 @@ model Organization {
   ownerName           String?      @db.VarChar(120)
   onboardingCompleted Boolean      @default(false)
   tvSettings          Json?
+  paymentFees         Json?
 
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt

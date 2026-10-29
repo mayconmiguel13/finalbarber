@@ -21,7 +21,8 @@ import {
   DollarSign,
   Calendar,
   Sun,
-  Moon
+  Moon,
+  CreditCard
 } from 'lucide-vue-next';
 import { useThemeStore, colorPresets, type AccentColor } from '../stores/theme';
 import { useAuthStore } from '../stores/auth';
@@ -67,6 +68,12 @@ const form = reactive({
   pixKey: '',
   pixKeyType: 'PHONE' as 'CPF' | 'CNPJ' | 'EMAIL' | 'PHONE' | 'RANDOM',
   
+  paymentFees: {
+    pixFeePercent: 0,
+    debitFeePercent: 1.4,
+    creditFeePercent: 3.2,
+    deductFeeFromSplit: true,
+  },
   // Horários de Funcionamento (Segunda a Domingo)
   openingHours: {
     monday: { open: '09:00', close: '20:00', lunchStart: '12:00', lunchEnd: '13:00', closed: false },
@@ -142,6 +149,14 @@ async function loadSettings() {
     
     if (data.openingHours && typeof data.openingHours === 'object') {
       form.openingHours = { ...form.openingHours, ...data.openingHours };
+    }
+    if (data.paymentFees) {
+      form.paymentFees = {
+        pixFeePercent: Number(data.paymentFees.pixFeePercent) ?? 0,
+        debitFeePercent: Number(data.paymentFees.debitFeePercent) ?? 1.4,
+        creditFeePercent: Number(data.paymentFees.creditFeePercent) ?? 3.2,
+        deductFeeFromSplit: data.paymentFees.deductFeeFromSplit ?? true,
+      };
     }
   } catch (err: any) {
     console.warn('Erro ao carregar configurações do banco:', err);
@@ -260,6 +275,12 @@ async function saveAllSettings() {
         pixKey: form.pixKey,
         pixKeyType: form.pixKeyType,
         openingHours: form.openingHours,
+        paymentFees: {
+          pixFeePercent: Number(form.paymentFees.pixFeePercent) || 0,
+          debitFeePercent: Number(form.paymentFees.debitFeePercent) || 0,
+          creditFeePercent: Number(form.paymentFees.creditFeePercent) || 0,
+          deductFeeFromSplit: Boolean(form.paymentFees.deductFeeFromSplit),
+        },
       },
       orgId.value
     );
@@ -734,6 +755,121 @@ onMounted(() => {
                 class="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-300 dark:border-white/10 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500 font-mono"
               />
             </div>
+          </div>
+        </div>
+
+        <!-- Taxas da Maquininha & Split Salão-Parceiro -->
+        <div class="p-5 sm:p-6 rounded-2xl bg-slate-50 dark:bg-black/40 border border-slate-200 dark:border-white/10 space-y-5">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-bold">
+                <CreditCard class="w-4 h-4" />
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white">Taxas da Maquininha de Cartão (Adquirência)</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Configure as taxas cobradas pela sua operadora (Stone, PagBank, InfinitePay, etc.)</p>
+              </div>
+            </div>
+            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+              Economia Automática
+            </span>
+          </div>
+
+          <!-- Grid dos 3 Inputs Simples -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="p-3.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-1">
+              <label class="block text-[11px] font-bold text-slate-500 uppercase">Pix na Maquininha (%)</label>
+              <div class="relative">
+                <input 
+                  v-model.number="form.paymentFees.pixFeePercent"
+                  type="number" 
+                  step="0.01" 
+                  min="0" 
+                  max="100"
+                  class="w-full px-3 py-2 pr-8 rounded-lg bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+              </div>
+              <span class="text-[10px] text-slate-400">Padrão: 0%</span>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-1">
+              <label class="block text-[11px] font-bold text-slate-500 uppercase">Cartão de Débito (%)</label>
+              <div class="relative">
+                <input 
+                  v-model.number="form.paymentFees.debitFeePercent"
+                  type="number" 
+                  step="0.01" 
+                  min="0" 
+                  max="100"
+                  class="w-full px-3 py-2 pr-8 rounded-lg bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+              </div>
+              <span class="text-[10px] text-slate-400">Padrão: 1.4%</span>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-white dark:bg-[#07090e] border border-slate-200 dark:border-white/10 space-y-1">
+              <label class="block text-[11px] font-bold text-slate-500 uppercase">Crédito à Vista (%)</label>
+              <div class="relative">
+                <input 
+                  v-model.number="form.paymentFees.creditFeePercent"
+                  type="number" 
+                  step="0.01" 
+                  min="0" 
+                  max="100"
+                  class="w-full px-3 py-2 pr-8 rounded-lg bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                />
+                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+              </div>
+              <span class="text-[10px] text-slate-400">Padrão: 3.2%</span>
+            </div>
+          </div>
+
+          <!-- Chave Seletora Inteligente (Toggle) -->
+          <div class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-start justify-between gap-4">
+            <div class="space-y-1">
+              <span class="text-xs font-black text-amber-900 dark:text-amber-300 block">
+                Descontar taxa da maquininha da quota-parte dos profissionais?
+              </span>
+              <p class="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                Amparado pela <strong>Lei 13.352 (Salão-Parceiro)</strong>. Quando ativado, a comissão do profissional é calculada sobre o valor líquido recebido após o desconto da taxa da maquininha, evitando que o salão arque sozinho com a taxa bancária.
+              </p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+              <input 
+                v-model="form.paymentFees.deductFeeFromSplit" 
+                type="checkbox" 
+                class="sr-only peer"
+              />
+              <div class="w-11 h-6 bg-slate-200 dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
+          </div>
+
+          <!-- Simulador Didático Visual -->
+          <div class="p-4 rounded-xl bg-slate-100 dark:bg-white/[0.03] border border-slate-200 dark:border-white/5 space-y-2 text-xs">
+            <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Simulação Prática (Exemplo: Corte de R$ 60,00 no Crédito 1x)</span>
+            <div class="grid grid-cols-3 gap-2 text-center pt-1 font-mono">
+              <div class="p-2 rounded-lg bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
+                <span class="text-[10px] text-slate-400 block">Taxa Maquininha ({{ form.paymentFees.creditFeePercent }}%)</span>
+                <span class="font-bold text-rose-500">- R$ {{ ((60 * form.paymentFees.creditFeePercent) / 100).toFixed(2) }}</span>
+              </div>
+              <div class="p-2 rounded-lg bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
+                <span class="text-[10px] text-slate-400 block">Barbeiro (50% {{ form.paymentFees.deductFeeFromSplit ? 'Líquido' : 'Bruto' }})</span>
+                <span class="font-bold text-amber-500">
+                  R$ {{ form.paymentFees.deductFeeFromSplit ? (((60 - ((60 * form.paymentFees.creditFeePercent) / 100)) * 0.5)).toFixed(2) : '30.00' }}
+                </span>
+              </div>
+              <div class="p-2 rounded-lg bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
+                <span class="text-[10px] text-slate-400 block">Barbearia Retém</span>
+                <span class="font-bold text-emerald-500">
+                  R$ {{ form.paymentFees.deductFeeFromSplit ? (((60 - ((60 * form.paymentFees.creditFeePercent) / 100)) * 0.5)).toFixed(2) : (30 - ((60 * form.paymentFees.creditFeePercent) / 100)).toFixed(2) }}
+                </span>
+              </div>
+            </div>
+            <p v-if="!form.paymentFees.deductFeeFromSplit" class="text-[10px] text-rose-500 font-bold">
+              Atenção: Com a opção desativada, a barbearia paga R$ {{ ((60 * form.paymentFees.creditFeePercent) / 100).toFixed(2) }} da taxa bancária sozinha!
+            </p>
           </div>
         </div>
 

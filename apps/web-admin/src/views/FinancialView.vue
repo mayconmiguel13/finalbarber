@@ -37,6 +37,7 @@ import {
   AlertCircle,
   CalendarClock,
   PieChart,
+  Sliders,
   Printer,
   Calendar
 } from 'lucide-vue-next';
@@ -360,6 +361,50 @@ function printDetailModal() {
 }
 
 // ================= MODAL DE NOVO LANÇAMENTO (RECEITA / DESPESA) =================
+// Modal de Configuração Rápida de Taxas da Maquininha
+const isFeeModalOpen = ref(false);
+const feeForm = reactive({
+  pixFeePercent: 0,
+  debitFeePercent: 1.4,
+  creditFeePercent: 3.2,
+  deductFeeFromSplit: true,
+});
+
+function openFeeModal() {
+  playPopSound();
+  if (summary.value.paymentFees) {
+    feeForm.pixFeePercent = Number(summary.value.paymentFees.pixFeePercent) ?? 0;
+    feeForm.debitFeePercent = Number(summary.value.paymentFees.debitFeePercent) ?? 1.4;
+    feeForm.creditFeePercent = Number(summary.value.paymentFees.creditFeePercent) ?? 3.2;
+    feeForm.deductFeeFromSplit = summary.value.paymentFees.deductFeeFromSplit ?? true;
+  }
+  isFeeModalOpen.value = true;
+}
+
+async function handleSaveFees() {
+  playPopSound();
+  saving.value = true;
+  try {
+    await api.updatePaymentFees({
+      pixFeePercent: Number(feeForm.pixFeePercent) || 0,
+      debitFeePercent: Number(feeForm.debitFeePercent) || 0,
+      creditFeePercent: Number(feeForm.creditFeePercent) || 0,
+      deductFeeFromSplit: Boolean(feeForm.deductFeeFromSplit),
+    });
+    playSuccessSound();
+    toast.success('Taxas da maquininha salvas com sucesso!', 'Economia Aplicada');
+    isFeeModalOpen.value = false;
+    await loadAllData();
+  } catch (err: any) {
+    toast.error(err.message || 'Erro ao salvar taxas da maquininha.', 'Falha');
+  } finally {
+    saving.value = false;
+  }
+}
+
+// Controle de Categoria Personalizada vs Padrão no Modal de Lançamento
+const isCustomCategory = ref(false);
+
 const isEntryModalOpen = ref(false);
 const entryForm = reactive({
   type: 'INCOME' as 'INCOME' | 'EXPENSE',
@@ -384,6 +429,7 @@ function openCreateEntryModal(type: 'INCOME' | 'EXPENSE' = 'INCOME') {
   entryForm.barberCommission = '';
   entryForm.status = 'PAID';
   entryForm.dueDate = '';
+  isCustomCategory.value = false;
   isEntryModalOpen.value = true;
 }
 
@@ -1444,6 +1490,37 @@ onMounted(() => {
               </div>
             </div>
 
+            <!-- Linha 2.5: Taxas da Maquininha & Cartão -->
+            <div class="flex items-center justify-between p-3.5 rounded-2xl bg-amber-500/[0.03] border border-amber-500/15">
+              <div class="flex items-center gap-3">
+                <span class="w-6 h-6 rounded-lg bg-amber-500/15 text-amber-500 flex items-center justify-center font-black text-xs">-</span>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-bold text-slate-800 dark:text-slate-200 block text-xs">Taxas da Maquininha &amp; Cartão</span>
+                    <button 
+                      @click="openFeeModal"
+                      class="px-2 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/25 text-amber-600 dark:text-amber-400 font-black text-[9px] uppercase tracking-wider transition cursor-pointer flex items-center gap-1"
+                      title="Ajustar taxas da sua maquininha"
+                    >
+                      <Sliders class="w-2.5 h-2.5" />
+                      <span>Ajustar Taxas</span>
+                    </button>
+                  </div>
+                  <span class="text-[10px] text-slate-400">
+                    Débito ({{ summary.paymentFees?.debitFeePercent ?? 1.4 }}%) • Crédito ({{ summary.paymentFees?.creditFeePercent ?? 3.2 }}%)
+                  </span>
+                </div>
+              </div>
+              <div class="text-right">
+                <span class="font-black text-amber-600 dark:text-amber-400 text-base block">
+                  - {{ formatMoney(summary.cardFeeTotal || 0) }}
+                </span>
+                <span class="text-[10px] text-slate-400">
+                  {{ summary.totalIncome > 0 ? (((summary.cardFeeTotal || 0) / summary.totalIncome) * 100).toFixed(1) : 0 }}% do faturamento
+                </span>
+              </div>
+            </div>
+
             <!-- Linha 3: Receita Líquida do Estabelecimento -->
             <div class="flex items-center justify-between p-3.5 rounded-2xl bg-blue-500/[0.04] border border-blue-500/20">
               <div class="flex items-center gap-3">
@@ -1536,6 +1613,14 @@ onMounted(() => {
                   </p>
                 </div>
               </div>
+              <button 
+                @click="openFeeModal"
+                class="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-amber-500/15 hover:text-amber-500 text-slate-600 dark:text-slate-300 font-bold text-[11px] transition cursor-pointer flex items-center gap-1"
+                title="Configurar taxas de cartão"
+              >
+                <Sliders class="w-3.5 h-3.5" />
+                <span>Taxas</span>
+              </button>
             </div>
 
             <!-- Barra Visual Segmentada -->
@@ -1894,12 +1979,33 @@ onMounted(() => {
         <!-- Formulário -->
         <div class="space-y-4">
           
-          <!-- Plano de Contas Padronizado para Barbearias (optgroup) -->
+          <!-- Plano de Contas Padronizado para Barbearias (optgroup) + Categoria Customizada -->
           <div>
-            <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-              Categoria (Plano de Contas)
-            </label>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                Categoria {{ isCustomCategory ? '(Personalizada)' : '(Plano de Contas)' }}
+              </label>
+              <button 
+                type="button"
+                @click="isCustomCategory = !isCustomCategory"
+                class="text-[10px] font-bold text-amber-500 hover:underline cursor-pointer"
+              >
+                {{ isCustomCategory ? '← Escolher da lista padrão' : '+ Outra Categoria' }}
+              </button>
+            </div>
+
+            <!-- Input livre para categoria personalizada -->
+            <input 
+              v-if="isCustomCategory"
+              v-model="entryForm.category"
+              type="text"
+              placeholder="Digite o nome da nova categoria..."
+              class="w-full px-3.5 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+            />
+
+            <!-- Select estruturado por optgroup -->
             <select 
+              v-else
               v-model="entryForm.category"
               class="w-full px-3.5 py-3 rounded-xl bg-slate-50 dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-semibold text-slate-900 dark:text-white dark:[color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-amber-500/30 cursor-pointer"
             >
@@ -2249,6 +2355,151 @@ onMounted(() => {
     </div>
 
     <!-- ========================================================================= -->
+    <!-- MODAL 4: CONFIGURAÇÃO DE TAXAS DA MAQUININHA                              -->
+    <!-- ========================================================================= -->
+    <div v-if="isFeeModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">
+      <div class="bg-white dark:bg-[#0e131d] rounded-3xl border border-slate-200 dark:border-white/10 shadow-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 max-h-[92vh] overflow-y-auto no-scrollbar">
+        
+        <div class="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-white/[0.08]">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-500 flex items-center justify-center font-black">
+              <CreditCard class="w-5 h-5" />
+            </div>
+            <div>
+              <h3 class="text-base font-black text-slate-900 dark:text-white">
+                Taxas da Maquininha de Cartão
+              </h3>
+              <p class="text-xs text-slate-400">
+                Configure as taxas reais da sua operadora (Stone, PagBank, Ton, etc.)
+              </p>
+            </div>
+          </div>
+          <button 
+            @click="isFeeModalOpen = false" 
+            class="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+          >
+            <X class="w-5 h-5" />
+          </button>
+        </div>
+
+        <!-- 3 Inputs de Taxas -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 space-y-1">
+            <label class="block text-[11px] font-bold text-slate-500 uppercase">Pix (%)</label>
+            <div class="relative">
+              <input 
+                v-model.number="feeForm.pixFeePercent"
+                type="number" 
+                step="0.01" 
+                min="0" 
+                max="100"
+                class="w-full px-3 py-2 pr-7 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+            </div>
+            <span class="text-[10px] text-slate-400">Geralmente 0%</span>
+          </div>
+
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 space-y-1">
+            <label class="block text-[11px] font-bold text-slate-500 uppercase">Débito (%)</label>
+            <div class="relative">
+              <input 
+                v-model.number="feeForm.debitFeePercent"
+                type="number" 
+                step="0.01" 
+                min="0" 
+                max="100"
+                class="w-full px-3 py-2 pr-7 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+            </div>
+            <span class="text-[10px] text-slate-400">Padrão: 1.4%</span>
+          </div>
+
+          <div class="p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 space-y-1">
+            <label class="block text-[11px] font-bold text-slate-500 uppercase">Crédito 1x (%)</label>
+            <div class="relative">
+              <input 
+                v-model.number="feeForm.creditFeePercent"
+                type="number" 
+                step="0.01" 
+                min="0" 
+                max="100"
+                class="w-full px-3 py-2 pr-7 rounded-xl bg-white dark:bg-[#121824] border border-slate-200 dark:border-white/10 text-xs font-black text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">%</span>
+            </div>
+            <span class="text-[10px] text-slate-400">Padrão: 3.2%</span>
+          </div>
+        </div>
+
+        <!-- Chave Seletora Inteligente (Toggle) -->
+        <div class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-start justify-between gap-4">
+          <div class="space-y-1">
+            <span class="text-xs font-black text-amber-900 dark:text-amber-300 block">
+              Descontar taxa da maquininha da quota-parte dos profissionais?
+            </span>
+            <p class="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+              Amparado pela <strong>Lei 13.352 (Salão-Parceiro)</strong>. O repasse do barbeiro é calculado sobre o valor líquido recebido após a taxa da maquininha, evitando que o salão arque sozinho com a taxa.
+            </p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+            <input 
+              v-model="feeForm.deductFeeFromSplit" 
+              type="checkbox" 
+              class="sr-only peer"
+            />
+            <div class="w-11 h-6 bg-slate-200 dark:bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+          </label>
+        </div>
+
+        <!-- Simulador Didático Visual -->
+        <div class="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/5 space-y-2 text-xs">
+          <span class="text-[10px] font-black uppercase tracking-wider text-slate-400 block">Simulação Prática (Exemplo: Corte de R$ 60,00 no Crédito 1x)</span>
+          <div class="grid grid-cols-3 gap-2 text-center pt-1 font-mono">
+            <div class="p-2 rounded-xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
+              <span class="text-[10px] text-slate-400 block">Taxa ({{ feeForm.creditFeePercent }}%)</span>
+              <span class="font-bold text-rose-500">- R$ {{ ((60 * feeForm.creditFeePercent) / 100).toFixed(2) }}</span>
+            </div>
+            <div class="p-2 rounded-xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
+              <span class="text-[10px] text-slate-400 block">Barbeiro (50%)</span>
+              <span class="font-bold text-amber-500">
+                R$ {{ feeForm.deductFeeFromSplit ? (((60 - ((60 * feeForm.creditFeePercent) / 100)) * 0.5)).toFixed(2) : '30.00' }}
+              </span>
+            </div>
+            <div class="p-2 rounded-xl bg-white dark:bg-black/30 border border-slate-200 dark:border-white/5">
+              <span class="text-[10px] text-slate-400 block">Barbearia Retém</span>
+              <span class="font-bold text-emerald-500">
+                R$ {{ feeForm.deductFeeFromSplit ? (((60 - ((60 * feeForm.creditFeePercent) / 100)) * 0.5)).toFixed(2) : (30 - ((60 * feeForm.creditFeePercent) / 100)).toFixed(2) }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Botões do Rodapé -->
+        <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-white/[0.08]">
+          <button 
+            type="button" 
+            @click="isFeeModalOpen = false" 
+            class="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 text-slate-600 dark:text-slate-300 font-bold text-xs hover:bg-slate-100 dark:hover:bg-white/5 transition cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button 
+            type="button" 
+            @click="handleSaveFees" 
+            :disabled="saving"
+            class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider transition cursor-pointer shadow-lg shadow-amber-500/20 disabled:opacity-50"
+          >
+            <Loader2 v-if="saving" class="w-4 h-4 animate-spin" />
+            <span>{{ saving ? 'Salvando...' : 'Salvar Taxas' }}</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+        <!-- ========================================================================= -->
     <!-- MODAL 3: CONFIRMAÇÃO DE EXCLUSÃO                                         -->
     <!-- ========================================================================= -->
     <div v-if="isDeleteModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in no-scrollbar">

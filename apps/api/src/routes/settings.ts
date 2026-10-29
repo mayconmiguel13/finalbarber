@@ -13,6 +13,14 @@ export const defaultOpeningHours = {
   sunday: { open: '09:00', close: '14:00', lunchStart: '', lunchEnd: '', closed: true },
 };
 
+// Default payment and card fees for barbershops
+export const defaultPaymentFees = {
+  pixFeePercent: 0,
+  debitFeePercent: 1.4,
+  creditFeePercent: 3.2,
+  deductFeeFromSplit: true,
+};
+
 export async function settingsRoutes(app: FastifyInstance) {
   const settingsUpdateSchema = z.object({
     name: z.string().min(2).optional(),
@@ -46,6 +54,14 @@ export async function settingsRoutes(app: FastifyInstance) {
 
     // Horários de Funcionamento
     openingHours: z.record(z.any()).optional().nullable(),
+
+    // Taxas de Cartão & Operadora (Adquirência)
+    paymentFees: z.object({
+      pixFeePercent: z.number().min(0).max(100).default(0),
+      debitFeePercent: z.number().min(0).max(100).default(1.4),
+      creditFeePercent: z.number().min(0).max(100).default(3.2),
+      deductFeeFromSplit: z.boolean().default(true),
+    }).optional().nullable(),
   });
 
   // GET /api/settings/:orgId
@@ -84,6 +100,7 @@ export async function settingsRoutes(app: FastifyInstance) {
         pixKey: org.pixKey || '',
         pixKeyType: org.pixKeyType || 'PHONE',
         openingHours: org.openingHours || defaultOpeningHours,
+        paymentFees: org.paymentFees || defaultPaymentFees,
         planStatus: org.planStatus,
         planTier: org.planTier,
         trialEndsAt: org.trialEndsAt,
@@ -112,7 +129,7 @@ export async function settingsRoutes(app: FastifyInstance) {
           name: data.name !== undefined ? data.name : undefined,
           slug: data.slug !== undefined ? data.slug : undefined,
           document: data.document !== undefined ? data.document : undefined,
-          phone: data.phone !== undefined ? data.phone : undefined,
+          phone: data.phone || undefined,
           ownerName: data.ownerName !== undefined ? data.ownerName : undefined,
           postalCode: data.postalCode !== undefined ? data.postalCode : undefined,
           address: data.address !== undefined ? data.address : undefined,
@@ -130,6 +147,7 @@ export async function settingsRoutes(app: FastifyInstance) {
           pixKey: data.pixKey !== undefined ? data.pixKey : undefined,
           pixKeyType: data.pixKeyType !== undefined ? data.pixKeyType : undefined,
           openingHours: data.openingHours !== undefined ? (data.openingHours as any) : undefined,
+          paymentFees: data.paymentFees !== undefined ? (data.paymentFees as any) : undefined,
         },
       });
 
@@ -159,6 +177,7 @@ export async function settingsRoutes(app: FastifyInstance) {
           pixKey: updated.pixKey,
           pixKeyType: updated.pixKeyType,
           openingHours: updated.openingHours || defaultOpeningHours,
+          paymentFees: updated.paymentFees || defaultPaymentFees,
         },
       };
     } catch (err: any) {

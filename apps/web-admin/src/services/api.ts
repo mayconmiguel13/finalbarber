@@ -423,9 +423,17 @@ export interface FinancialEntry {
   createdAt: string;
 }
 
+export interface PaymentFeeSettings {
+  pixFeePercent: number;
+  debitFeePercent: number;
+  creditFeePercent: number;
+  deductFeeFromSplit: boolean;
+}
+
 export interface FinancialSummary {
   totalIncome: number;
   totalExpense: number;
+  cardFeeTotal?: number;
   netProfit: number;
   netSalonIncome?: number;
   profitMargin?: number;
@@ -435,6 +443,7 @@ export interface FinancialSummary {
   periodPendingCommissions?: number;
   pendingExpensesCount?: number;
   pendingExpensesTotal?: number;
+  paymentFees?: PaymentFeeSettings;
   paymentMethods?: Record<string, { total: number; count: number; percentage: number }>;
   entryCount: number;
   recentEntries?: FinancialEntry[];
@@ -535,6 +544,7 @@ export interface OrgSettings {
   pixKey?: string;
   pixKeyType?: 'CPF' | 'CNPJ' | 'EMAIL' | 'PHONE' | 'RANDOM';
   openingHours?: Record<string, DaySchedule>;
+  paymentFees?: PaymentFeeSettings;
   planStatus?: string;
   trialEndsAt?: string;
 }
@@ -580,6 +590,17 @@ export const api = {
     });
     if (!res.ok) throw new Error('Falha ao atualizar configurações');
     return res.json();
+  },
+
+  async updatePaymentFees(fees: PaymentFeeSettings, orgId = 'default-org'): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`/api/settings/${orgId}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ paymentFees: fees }),
+    });
+    const resData = await res.json();
+    if (!res.ok) throw new Error(resData.error || 'Falha ao salvar taxas da maquininha');
+    return resData;
   },
 
   async getAppointments(params?: { date?: string; startDate?: string; endDate?: string; barberId?: string }): Promise<Appointment[]> {

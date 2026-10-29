@@ -5,9 +5,20 @@ import { prisma } from '../db.js';
 
 async function syncCompletedAppointmentsToFinancial(orgId: string) {
   try {
+    const org = await prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { paymentFees: true },
+    });
+    const fees: any = org?.paymentFees || {
+      pixFeePercent: 0,
+      debitFeePercent: 1.4,
+      creditFeePercent: 3.2,
+      deductFeeFromSplit: true,
+    };
+
     const completedApts = await prisma.appointment.findMany({
       where: { orgId, status: 'COMPLETED' },
-      include: { service: true, customer: true, barber: true },
+      include: { service: true, customer: true, barber: true, transaction: true },
     });
 
     for (const apt of completedApts) {
@@ -16,13 +27,22 @@ async function syncCompletedAppointmentsToFinancial(orgId: string) {
       if (existing.length === 0) {
         const finalPrice = Number(apt.finalPrice) || 0;
         const commRate = Number(apt.barber?.commissionRate) || 50;
-        const commAmount = (finalPrice * commRate) / 100;
+        const payMethod = (apt.transaction?.paymentMethod || 'PIX').toUpperCase();
+
+        let feePercent = 0;
+        if (payMethod === 'CREDIT_CARD') feePercent = Number(fees.creditFeePercent) || 3.2;
+        else if (payMethod === 'DEBIT_CARD') feePercent = Number(fees.debitFeePercent) || 1.4;
+        else if (payMethod === 'PIX') feePercent = Number(fees.pixFeePercent) || 0;
+
+        const feeAmount = (finalPrice * feePercent) / 100;
+        const netBase = fees.deductFeeFromSplit ? Math.max(0, finalPrice - feeAmount) : finalPrice;
+        const commAmount = (netBase * commRate) / 100;
         const desc = `Atendimento: ${apt.service?.name || 'Serviço'} (${apt.customer?.name || 'Cliente'})`;
 
         await prisma.$queryRawUnsafe(`
           INSERT INTO financial_entries (id, orgId, type, category, description, amount, paymentMethod, status, barberId, barberCommission, paidAt, createdAt, updatedAt)
-          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, 'PIX', 'PAID', ?, ?, ?, ?, NOW())
-        `, finId, orgId, desc, finalPrice, apt.barberId, commAmount, apt.endsAt || apt.startsAt, apt.startsAt);
+          VALUES (?, ?, 'INCOME', 'Serviço', ?, ?, ?, 'PAID', ?, ?, ?, ?, NOW())
+        `, finId, orgId, desc, finalPrice, payMethod, apt.barberId, commAmount, apt.endsAt || apt.startsAt, apt.startsAt);
       }
     }
   } catch (err: any) {
@@ -165,9 +185,35 @@ export async function financialRoutes(app: FastifyInstance) {
         allTimePending = Math.max(0, totalCommissionsGenerated - totalCommissionsPaid);
       }
 
+      const org = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { paymentFees: true },
+      });
+      const fees: any = org?.paymentFees || {
+        pixFeePercent: 0,
+        debitFeePercent: 1.4,
+        creditFeePercent: 3.2,
+        deductFeeFromSplit: true,
+      };
+
+      // Cálculo de taxas de cartão consumidas
+      let cardFeeTotal = 0;
+      for (const e of entries) {
+        if (e.type === 'INCOME') {
+          const val = Number(e.amount) || 0;
+          const pm = (e.paymentMethod || 'PIX').toUpperCase();
+          let rate = 0;
+          if (pm === 'CREDIT_CARD') rate = Number(fees.creditFeePercent) || 3.2;
+          else if (pm === 'DEBIT_CARD') rate = Number(fees.debitFeePercent) || 1.4;
+          else if (pm === 'PIX') rate = Number(fees.pixFeePercent) || 0;
+          cardFeeTotal += (val * rate) / 100;
+        }
+      }
+
+      cardFeeTotal = Number(cardFeeTotal.toFixed(2));
       const periodPendingCommissions = Math.max(0, totalCommissionsGenerated - totalCommissionsPaid);
-      const netProfit = totalIncome - totalExpense;
-      const netSalonIncome = Math.max(0, totalIncome - totalCommissionsGenerated);
+      const netProfit = Number((totalIncome - totalExpense - cardFeeTotal).toFixed(2));
+      const netSalonIncome = Number(Math.max(0, totalIncome - totalCommissionsGenerated - cardFeeTotal).toFixed(2));
       const profitMargin = totalIncome > 0 ? Number(((netProfit / totalIncome) * 100).toFixed(1)) : 0;
 
       // Despesas pendentes / Contas a pagar futuras
@@ -206,6 +252,7 @@ export async function financialRoutes(app: FastifyInstance) {
       return {
         totalIncome,
         totalExpense,
+        cardFeeTotal,
         netProfit,
         netSalonIncome,
         profitMargin,
@@ -215,6 +262,7 @@ export async function financialRoutes(app: FastifyInstance) {
         periodPendingCommissions,
         pendingExpensesCount,
         pendingExpensesTotal,
+        paymentFees: fees,
         paymentMethods,
         entryCount: entries.length,
       };
